@@ -1,0 +1,2 @@
+智能DNS解析/DNS轮询/四七层负载均衡   +  memcached/squid/varnish  + loadbalance + backend +前端集群+后端集群+ DB集群
++NOSQL
