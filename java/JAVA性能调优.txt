@@ -1,0 +1,721 @@
+一、避免在循环条件中使用复杂表达式 
+
+在不做编译优化的情况下，在循环中，循环条件会被反复计算，如果不使用复杂表达式，而使循环条件值不变的话，程序将会运行的更快。 
+
+例子： 
+import java.util.vector;
+class cel {
+    void method (vector vector) {
+        for (int i = 0; i < vector.size (); i++)  // violation
+            ; // ...
+    }
+}
+
+更正： 
+class cel_fixed {
+    void method (vector vector) {
+        int size = vector.size ()
+        for (int i = 0; i < size; i++)
+            ; // ...
+    }
+}
+
+
+二、为'vectors' 和 'hashtables'定义初始大小 
+
+jvm为vector扩充大小的时候需要重新创建一个更大的数组，将原原先数组中的内容复制过来，最后，原先的数组再被回收。可见vector容量的扩大是一个颇费时间的事。 
+通常，默认的10个元素大小是不够的。你最好能准确的估计你所需要的最佳大小。 
+
+例子： 
+import java.util.vector;
+public class dic {
+    public void addobjects (object[] o) {
+        // if length > 10, vector needs to expand
+        for (int i = 0; i< o.length;i++) {    
+            v.add(o);   // capacity before it can add more elements.
+        }
+    }
+    public vector v = new vector();  // no initialcapacity.
+}
+
+更正： 
+自己设定初始大小。 
+    public vector v = new vector(20);  
+    public hashtable hash = new hashtable(10);
+
+
+参考资料： 
+dov bulka, "java performance and scalability volume 1: server-side programming 
+techniques" addison wesley, isbn: 0-201-70429-3 pp.55 – 57 
+
+三、在finally块中关闭stream 
+
+程序中使用到的资源应当被释放，以避免资源泄漏。这最好在finally块中去做。不管程序执行的结果如何，finally块总是会执行的，以确保资源的正确关闭。 
+         
+例子： 
+import java.io.*;
+public class cs {
+    public static void main (string args[]) {
+        cs cs = new cs ();
+        cs.method ();
+    }
+    public void method () {
+        try {
+            fileinputstream fis = new fileinputstream ("cs.java");
+            int count = 0;
+            while (fis.read () != -1)
+                count++;
+            system.out.println (count);
+            fis.close ();
+        } catch (filenotfoundexception e1) {
+        } catch (ioexception e2) {
+        }
+    }
+}
+
+         
+更正： 
+在最后一个catch后添加一个finally块 
+
+参考资料： 
+peter haggar: "practical java - programming language guide". 
+addison wesley, 2000, pp.77-79 
+四、使用'system.arraycopy ()'代替通过来循环复制数组 
+
+'system.arraycopy ()' 要比通过循环来复制数组快的多。 
+         
+例子： 
+public class irb
+{
+    void method () {
+        int[] array1 = new int [100];
+        for (int i = 0; i < array1.length; i++) {
+            array1 [i] = i;
+        }
+        int[] array2 = new int [100];
+        for (int i = 0; i < array2.length; i++) {
+            array2 [i] = array1 [i];                 // violation
+        }
+    }
+}
+
+         
+更正： 
+public class irb
+{
+    void method () {
+        int[] array1 = new int [100];
+        for (int i = 0; i < array1.length; i++) {
+            array1 [i] = i;
+        }
+        int[] array2 = new int [100];
+        system.arraycopy(array1, 0, array2, 0, 100);
+    }
+}
+
+         
+参考资料： 
+http://www.cs.cmu.edu/~jch/java/speed.html 
+
+五、让访问实例内变量的getter/setter方法变成”final” 
+
+简单的getter/setter方法应该被置成final，这会告诉编译器，这个方法不会被重载，所以，可以变成”inlined” 
+
+例子： 
+class maf {
+    public void setsize (int size) {
+         _size = size;
+    }
+    private int _size;
+}
+
+
+更正： 
+class daf_fixed {
+    final public void setsize (int size) {
+         _size = size;
+    }
+    private int _size;
+}
+
+
+参考资料： 
+warren n. and bishop p. (1999), "java in practice", p. 4-5 
+addison-wesley, isbn 0-201-36065-9 
+
+六、避免不需要的instanceof操作 
+
+如果左边的对象的静态类型等于右边的，instanceof表达式返回永远为true。 
+         
+例子：         
+public class uiso {
+    public uiso () {}
+}
+class dog extends uiso {
+    void method (dog dog, uiso u) {
+        dog d = dog;
+        if (d instanceof uiso) // always true.
+            system.out.println("dog is a uiso");
+        uiso uiso = u;
+        if (uiso instanceof object) // always true.
+            system.out.println("uiso is an object");
+    }
+}
+
+         
+更正：         
+删掉不需要的instanceof操作。 
+         
+class dog extends uiso {
+    void method () {
+        dog d;
+        system.out.println ("dog is an uiso");
+        system.out.println ("uiso is an uiso");
+    }
+}
+
+
+七、避免不需要的造型操作 
+
+所有的类都是直接或者间接继承自object。同样，所有的子类也都隐含的“等于”其父类。那么，由子类造型至父类的操作就是不必要的了。 
+例子： 
+class unc {
+    string _id = "unc";
+}
+class dog extends unc {
+    void method () {
+        dog dog = new dog ();
+        unc animal = (unc)dog;  // not necessary.
+        object o = (object)dog;         // not necessary.
+    }
+}
+
+         
+更正：         
+class dog extends unc {
+    void method () {
+        dog dog = new dog();
+        unc animal = dog;
+        object o = dog;
+    }
+}
+   
+      
+参考资料： 
+nigel warren, philip bishop: "java in practice - design styles and idioms 
+for effective java".  addison-wesley, 1999. pp.22-23 
+八、如果只是查找单个字符的话，用charat()代替startswith() 
+
+用一个字符作为参数调用startswith()也会工作的很好，但从性能角度上来看，调用用string api无疑是错误的! 
+         
+例子： 
+public class pcts {
+    private void method(string s) {
+        if (s.startswith("a")) { // violation
+            // ...
+        }
+    }
+}
+
+         
+更正         
+将'startswith()' 替换成'charat()'. 
+public class pcts {
+    private void method(string s) {
+        if ('a' == s.charat(0)) {
+            // ...
+        }
+    }
+}
+
+         
+参考资料： 
+dov bulka, "java performance and scalability volume 1: server-side programming 
+techniques"  addison wesley, isbn: 0-201-70429-3 
+九、使用移位操作来代替'a / b'操作 
+
+"/"是一个很“昂贵”的操作，使用移位操作将会更快更有效。 
+
+例子： 
+public class sdiv {
+    public static final int num = 16;
+    public void calculate(int a) {
+        int div = a / 4;            // should be replaced with "a >> 2".
+        int div2 = a / 8;         // should be replaced with "a >> 3".
+        int temp = a / 3;
+    }
+}
+
+
+更正： 
+public class sdiv {
+    public static final int num = 16;
+    public void calculate(int a) {
+        int div = a >> 2;  
+        int div2 = a >> 3;
+        int temp = a / 3;       // 不能转换成位移操作
+    }
+}
+
+
+十、使用移位操作代替'a * b' 
+
+同上。 
+[i]但我个人认为，除非是在一个非常大的循环内，性能非常重要，而且你很清楚你自己在做什么，方可使用这种方法。否则提高性能所带来的程序晚读性的降低将是不合算的。 
+
+例子： 
+public class smul {
+    public void calculate(int a) {
+        int mul = a * 4;            // should be replaced with "a << 2".
+        int mul2 = 8 * a;         // should be replaced with "a << 3".
+        int temp = a * 3;
+    }
+}
+
+
+更正： 
+package opt;
+public class smul {
+    public void calculate(int a) {
+        int mul = a << 2;  
+        int mul2 = a << 3;
+        int temp = a * 3;       // 不能转换
+    }
+}
+
+
+十一、在字符串相加的时候，使用 ' ' 代替 " "，如果该字符串只有一个字符的话 
+
+
+例子： 
+public class str {
+    public void method(string s) {
+        string string = s + "d"  // violation.
+        string = "abc" + "d"      // violation.
+    }
+}
+
+更正： 
+将一个字符的字符串替换成' ' 
+public class str {
+    public void method(string s) {
+        string string = s + 'd'
+        string = "abc" + 'd'   
+    }
+}
+
+十二、不要在循环中调用synchronized(同步)方法 
+
+方法的同步需要消耗相当大的资料，在一个循环中调用它绝对不是一个好主意。 
+
+例子： 
+import java.util.vector;
+public class syn {
+    public synchronized void method (object o) {
+    }
+    private void test () {
+        for (int i = 0; i < vector.size(); i++) {
+            method (vector.elementat(i));    // violation
+        }
+    }
+    private vector vector = new vector (5, 5);
+}
+
+
+更正： 
+不要在循环体中调用同步方法，如果必须同步的话，推荐以下方式： 
+import java.util.vector;
+public class syn {
+    public void method (object o) {
+    }
+private void test () {
+    synchronized{//在一个同步块中执行非同步方法
+            for (int i = 0; i < vector.size(); i++) {
+                method (vector.elementat(i));   
+            }
+        }
+    }
+    private vector vector = new vector (5, 5);
+}
+
+
+十三、将try/catch块移出循环 
+
+把try/catch块放入循环体内，会极大的影响性能，如果编译jit被关闭或者你所使用的是一个不带jit的jvm，性能会将下降21%之多! 
+         
+例子：         
+import java.io.fileinputstream;
+public class try {
+    void method (fileinputstream fis) {
+        for (int i = 0; i < size; i++) {
+            try {                                      // violation
+                _sum += fis.read();
+            } catch (exception e) {}
+        }
+    }
+    private int _sum;
+}
+
+         
+更正：         
+将try/catch块移出循环         
+  
+ void method (fileinputstream fis) {
+        try {
+            for (int i = 0; i < size; i++) {
+                _sum += fis.read();
+            }
+        } catch (exception e) {}
+    }
+
+         
+参考资料： 
+peter haggar: "practical java - programming language guide". 
+addison wesley, 2000, pp.81 – 83 
+
+十四、对于boolean值，避免不必要的等式判断 
+
+将一个boolean值与一个true比较是一个恒等操作(直接返回该boolean变量的值). 移走对于boolean的不必要操作至少会带来2个好处： 
+1)代码执行的更快 (生成的字节码少了5个字节)； 
+2)代码也会更加干净 。 
+
+例子： 
+public class ueq
+{
+    boolean method (string string) {
+        return string.endswith ("a") == true;   // violation
+    }
+}
+
+
+更正： 
+class ueq_fixed
+{
+    boolean method (string string) {
+        return string.endswith ("a");
+    }
+}
+
+
+十五、对于常量字符串，用'string' 代替 'stringbuffer' 
+
+常量字符串并不需要动态改变长度。 
+例子： 
+public class usc {
+    string method () {
+        stringbuffer s = new stringbuffer ("hello");
+        string t = s + "world!";
+        return t;
+    }
+}
+
+
+更正： 
+把stringbuffer换成string，如果确定这个string不会再变的话，这将会减少运行开销提高性能。 
+
+十六、用'stringtokenizer' 代替 'indexof()' 和'substring()' 
+
+字符串的分析在很多应用中都是常见的。使用indexof()和substring()来分析字符串容易导致 stringindexoutofboundsexception。而使用stringtokenizer类来分析字符串则会容易一些，效率也会高一些。 
+
+例子： 
+public class ust {
+    void parsestring(string string) {
+        int index = 0;
+        while ((index = string.indexof(".", index)) != -1) {
+            system.out.println (string.substring(index, string.length()));
+        }
+    }
+}
+
+参考资料： 
+graig larman, rhett guthrie: "java 2 performance and idiom guide" 
+prentice hall ptr, isbn: 0-13-014260-3 pp. 282 – 283 
+
+十七、使用条件操作符替代"if (cond) return; else return;" 结构 
+
+条件操作符更加的简捷 
+例子： 
+public class if {
+    public int method(boolean isdone) {
+        if (isdone) {
+            return 0;
+        } else {
+            return 10;
+        }
+    }
+}
+
+
+更正： 
+public class if {
+    public int method(boolean isdone) {
+        return (isdone ? 0 : 10);
+    }
+}
+
+十八、使用条件操作符代替"if (cond) a = b; else a = c;" 结构 
+
+例子： 
+public class ifas {
+    void method(boolean istrue) {
+        if (istrue) {
+            _value = 0;
+        } else {
+            _value = 1;
+        }
+    }
+    private int _value = 0;
+}
+
+
+更正： 
+public class ifas {
+    void method(boolean istrue) {
+        _value = (istrue ? 0 : 1);       // compact expression.
+    }
+    private int _value = 0;
+}
+
+十九、不要在循环体中实例化变量 
+
+在循环体中实例化临时变量将会增加内存消耗 
+
+例子：         
+import java.util.vector;
+public class loop {
+    void method (vector v) {
+        for (int i=0;i < v.size();i++) {
+            object o = new object();
+            o = v.elementat(i);
+        }
+    }
+}
+
+         
+更正：         
+在循环体外定义变量，并反复使用         
+import java.util.vector;
+public class loop {
+    void method (vector v) {
+        object o;
+        for (int i=0;i<v.size();i++) {
+            o = v.elementat(i);
+        }
+    }
+}
+
+
+二十、确定 stringbuffer的容量 
+
+stringbuffer的构造器会创建一个默认大小(通常是16)的字符数组。在使用中，如果超出这个大小，就会重新分配内存，创建一个更大的数组，并将原先的数组复制过来，再丢弃旧的数组。在大多数情况下，你可以在创建stringbuffer的时候指定大小，这样就避免了在容量不够的时候自动增长，以提高性能。 
+
+例子：         
+public class rsbc {
+    void method () {
+        stringbuffer buffer = new stringbuffer(); // violation
+        buffer.append ("hello");
+    }
+}
+
+         
+更正：         
+为stringbuffer提供寝大小。         
+public class rsbc {
+    void method () {
+        stringbuffer buffer = new stringbuffer(max);
+        buffer.append ("hello");
+    }
+    private final int max = 100;
+}
+
+         
+参考资料： 
+dov bulka, "java performance and scalability volume 1: server-side programming 
+techniques" addison wesley, isbn: 0-201-70429-3 p.30 – 31 
+
+二十一、尽可能的使用栈变量 
+
+如果一个变量需要经常访问，那么你就需要考虑这个变量的作用域了。static? local?还是实例变量？访问静态变量和实例变量将会比访问局部变量多耗费2-3个时钟周期。 
+         
+例子： 
+public class usv {
+    void getsum (int[] values) {
+        for (int i=0; i < value.length; i++) {
+            _sum += value[i];           // violation.
+        }
+    }
+    void getsum2 (int[] values) {
+        for (int i=0; i < value.length; i++) {
+            _staticsum += value[i];
+        }
+    }
+    private int _sum;
+    private static int _staticsum;
+}     
+
+         
+更正：         
+如果可能，请使用局部变量作为你经常访问的变量。 
+你可以按下面的方法来修改getsum()方法：         
+void getsum (int[] values) {
+    int sum = _sum;  // temporary local variable.
+    for (int i=0; i < value.length; i++) {
+        sum += value[i];
+    }
+    _sum = sum;
+}
+
+         
+参考资料：         
+peter haggar: "practical java - programming language guide". 
+addison wesley, 2000, pp.122 – 125 
+
+二十二、不要总是使用取反操作符(!) 
+
+取反操作符(!)降低程序的可读性，所以不要总是使用。 
+
+例子： 
+public class dun {
+    boolean method (boolean a, boolean b) {
+        if (!a)
+            return !a;
+        else
+            return !b;
+    }
+}
+
+
+更正： 
+如果可能不要使用取反操作符(!) 
+
+二十三、与一个接口 进行instanceof操作 
+
+基于接口的设计通常是件好事，因为它允许有不同的实现，而又保持灵活。只要可能，对一个对象进行instanceof操作，以判断它是否某一接口要比是否某一个类要快。 
+
+例子： 
+public class insof {
+    private void method (object o) {
+        if (o instanceof interfacebase) { }  // better
+        if (o instanceof classbase) { }   // worse.
+    }
+}
+
+class classbase {}
+interface interfacebase {}
+
+
+
+
+一、通用篇
+　　
+　　1.1 不用new关键词创建类的实例
+　　用new关键词创建类的实例时，构造函数链中的所有构造函数都会被自动调用。但如果一个对象实现了Cloneable接口，我们可以调用它的clone()方法。clone()方法不会调用任何类构造函数。
+　　在使用设计模式（Design Pattern）的场合，如果用Factory模式创建对象，则改用clone()方法创建新的对象实例非常简单。例如，下面是Factory模式的一个典型实现：
+    public static Credit getNewCredit() {
+    return new Credit();
+    }
+　　改进后的代码使用clone()方法，如下所示：
+    private static Credit BaseCredit = new Credit();
+    public static Credit getNewCredit() {
+    return (Credit) BaseCredit.clone();
+    }
+　　上面的思路对于数组处理同样很有用。
+　　1.2 使用非阻塞I/O
+　　版本较低的JDK不支持非阻塞I/O API。为避免I/O阻塞，一些应用采用了创建大量线程的办法（在较好的情况下，会使用一个缓冲池）。这种技术可以在许多必须支持并发I/O流的应用中见到，如Web服务器、报价和拍卖应用等。然而，创建Java线程需要相当可观的开销。
+　　JDK 1.4引入了非阻塞的I/O库（java.nio）。如果应用要求使用版本较早的JDK，在这里有一个支持非阻塞I/O的软件包。
+　　请参见Sun中国网站的《调整Java的I/O性能》。
+　　1.3 慎用异常
+　　异常对性能不利。抛出异常首先要创建一个新的对象。Throwable接口的构造函数调用名为fillInStackTrace()的本地（Native）方法，fillInStackTrace()方法检查堆栈，收集调用跟踪信息。只要有异常被抛出，VM就必须调整调用堆栈，因为在处理过程中创建了一个新的对象。
+　　异常只能用于错误处理，不应该用来控制程序流程。
+　　1.4 不要重复初始化变量
+　　默认情况下，调用类的构造函数时， Java会把变量初始化成确定的值：所有的对象被设置成null，整数变量（byte、short、int、long）设置成0，float和 double变量设置成0.0，逻辑值设置成false。当一个类从另一个类派生时，这一点尤其应该注意，因为用new关键词创建一个对象时，构造函数链中的所有构造函数都会被自动调用。
+　　1.5 尽量指定类的final修饰符
+　　带有final修饰符的类是不可派生的。在Java核心API中，有许多应用final的例子，例如java.lang.String。为String类指定final防止了人们覆盖length()方法。
+　　另外，如果指定一个类为final，则该类所有的方法都是final。Java编译器会寻找机会内联（inline）所有的final方法（这和具体的编译器实现有关）。此举能够使性能平均提高50%。
+　　1.6 尽量使用局部变量
+　　调用方法时传递的参数以及在调用中创建的临时变量都保存在栈（Stack）中，速度较快。其他变量，如静态变量、实例变量等，都在堆（Heap）中创建，速度较慢。另外，依赖于具体的编译器/JVM，局部变量还可能得到进一步优化。请参见《尽可能使用堆栈变量》。
+　　1.7 乘法和除法
+　　考虑下面的代码：
+    for (val = 0; val < 100000; val +=5) { alterX = val * 8; myResult = val * 2; }
+　　用移位操作替代乘法操作可以极大地提高性能。下面是修改后的代码：
+    for (val = 0; val < 100000; val += 5) { alterX = val << 3; myResult = val << 1; }
+　　修改后的代码不再做乘以8的操作，而是改用等价的左移3位操作，每左移1位相当于乘以2。相应地，右移1位操作相当于除以2。值得一提的是，虽然移位操作速度快，但可能使代码比较难于理解，所以最好加上一些注释。 
+
+二、J2EE篇
+　　前面介绍的改善性能技巧适合于大多数Java应用，接下来要讨论的问题适合于使用JSP、EJB或JDBC的应用。
+　　2.1 使用缓冲标记
+　　一些应用服务器加入了面向JSP的缓冲标记功能。例如，BEA的WebLogic Server从6.0版本开始支持这个功能，Open Symphony工程也同样支持这个功能。JSP缓冲标记既能够缓冲页面片断，也能够缓冲整个页面。当JSP页面执行时，如果目标片断已经在缓冲之中，则生成该片断的代码就不用再执行。页面级缓冲捕获对指定URL的请求，并缓冲整个结果页面。对于购物篮、目录以及门户网站的主页来说，这个功能极其有用。对于这类应用，页面级缓冲能够保存页面执行的结果，供后继请求使用。
+　　对于代码逻辑复杂的页面，利用缓冲标记提高性能的效果比较明显；反之，效果可能略逊一筹。
+　　请参见《用缓冲技术提高JSP应用的性能和稳定性》。
+　　2.2 始终通过会话Bean访问实体Bean
+
+　　直接访问实体Bean不利于性能。当客户程序远程访问实体Bean时，每一个get方法都是一个远程调用。访问实体Bean的会话Bean是本地的，能够把所有数据组织成一个结构，然后返回它的值。
+　　用会话Bean封装对实体Bean的访问能够改进事务管理，因为会话Bean只有在到达事务边界时才会提交。每一个对get方法的直接调用产生一个事务，容器将在每一个实体Bean的事务之后执行一个“装入-读取”操作。
+　　一些时候，使用实体Bean会导致程序性能不佳。如果实体Bean的唯一用途就是提取和更新数据，改成在会话Bean之内利用JDBC访问数据库可以得到更好的性能。
+
+　　2.3 选择合适的引用机制
+　　在典型的JSP应用系统中，页头、页脚部分往往被抽取出来，然后根据需要引入页头、页脚。当前，在JSP页面中引入外部资源的方法主要有两种：include指令，以及include动作。
+　　include指令：例如<%@ include file="copyright.html" %>。该指令在编译时引入指定的资源。在编译之前，带有include指令的页面和指定的资源被合并成一个文件。被引用的外部资源在编译时就确定，比运行时才确定资源更高效。
+    include动作：例如<jsp:include page="copyright.jsp" />。该动作引入指定页面执行后生成的结果。由于它在运行时完成，因此对输出结果的控制更加灵活。但时，只有当被引用的内容频繁地改变时，或者在对主页面的请求没有出现之前，被引用的页面无法确定时，使用include动作才合算。
+
+　　2.4 在部署描述器中设置只读属性
+
+　　实体Bean的部署描述器允许把所有get方法设置成“只读”。当某个事务单元的工作只包含执行读取操作的方法时，设置只读属性有利于提高性能，因为容器不必再执行存储操作。
+
+　　2.5 缓冲对EJB Home的访问
+
+　　EJB Home接口通过JNDI名称查找获得。这个操作需要相当可观的开销。JNDI查找最好放入Servlet的init()方法里面。如果应用中多处频繁地出现EJB访问，最好创建一个EJBHomeCache类。EJBHomeCache类一般应该作为singleton实现。
+
+　　2.6 为EJB实现本地接口
+　　本地接口是EJB 2.0规范新增的内容，它使得Bean能够避免远程调用的开销。请考虑下面的代码。
+    PayBeanHome home = (PayBeanHome)
+    javax.rmi.PortableRemoteObject.narrow
+    (ctx.lookup ("PayBeanHome"), PayBeanHome.class);
+    PayBean bean = (PayBean)
+    javax.rmi.PortableRemoteObject.narrow
+    (home.create(), PayBean.class);
+
+　　第一个语句表示我们要寻找Bean的Home接口。这个查找通过JNDI进行，它是一个RMI调用。然后，我们定位远程对象，返回代理引用，这也是一个 RMI调用。第二个语句示范了如何创建一个实例，涉及了创建IIOP请求并在网络上传输请求的stub程序，它也是一个RMI调用。
+
+　　要实现本地接口，我们必须作如下修改：
+
+　　方法不能再抛出java.rmi.RemoteException异常，包括从RemoteException派生的异常，比如 TransactionRequiredException、TransactionRolledBackException和 NoSuchObjectException。EJB提供了等价的本地异常，如TransactionRequiredLocalException、 TransactionRolledBackLocalException和NoSuchObjectLocalException。
+
+　　所有数据和返回值都通过引用的方式传递，而不是传递值。
+　　本地接口必须在EJB部署的机器上使用。简而言之，客户程序和提供服务的组件必须在同一个JVM上运行。
+　　如果Bean实现了本地接口，则其引用不可串行化。 
+
+2.7 生成主键
+
+　　在EJB之内生成主键有许多途径，下面分析了几种常见的办法以及它们的特点。
+　　利用数据库内建的标识机制（SQL Server的IDENTITY或Oracle的SEQUENCE）。这种方法的缺点是EJB可移植性差。
+　　由实体Bean自己计算主键值（比如做增量操作）。它的缺点是要求事务可串行化，而且速度也较慢。
+　　利用NTP之类的时钟服务。这要求有面向特定平台的本地代码，从而把Bean固定到了特定的OS之上。另外，它还导致了这样一种可能，即在多CPU的服务器上，同一个毫秒之内生成了两个主键。
+　　借鉴Microsoft的思路，在Bean中创建一个GUID。然而，如果不求助于JNI，Java不能确定网卡的MAC地址；如果使用JNI，则程序就要依赖于特定的OS。
+　　还有其他几种办法，但这些办法同样都有各自的局限。似乎只有一个答案比较理想：结合运用RMI和JNDI。先通过RMI注册把RMI远程对象绑定到JNDI树。客户程序通过JNDI进行查找。下面是一个例子：
+    public class keyGenerator extends UnicastRemoteObject implements Remote {
+    private static long KeyValue = System.currentTimeMillis();
+    public static synchronized long getKey() throws RemoteException { return KeyValue++; }
+
+　　2.8 及时清除不再需要的会话
+　　为了清除不再活动的会话，许多应用服务器都有默认的会话超时时间，一般为30分钟。当应用服务器需要保存更多会话时，如果内存容量不足，操作系统会把部分内存数据转移到磁盘，应用服务器也可能根据“最近最频繁使用”（Most Recently Used）算法把部分不活跃的会话转储到磁盘，甚至可能抛出“内存不足”异常。在大规模系统中，串行化会话的代价是很昂贵的。当会话不再需要时，应当及时调用HttpSession.invalidate()方法清除会话。HttpSession.invalidate()方法通常可以在应用的退出页面调用。
+　　2.9 在JSP页面中关闭无用的会话
+　　对于那些无需跟踪会话状态的页面，关闭自动创建的会话可以节省一些资源。使用如下page指令：
+    <%@ page session="false"%>
+　　2.10 Servlet与内存使用
+　　许多开发者随意地把大量信息保存到用户会话之中。一些时候，保存在会话中的对象没有及时地被垃圾回收机制回收。从性能上看，典型的症状是用户感到系统周期性地变慢，却又不能把原因归于任何一个具体的组件。如果监视JVM的堆空间，它的表现是内存占用不正常地大起大落。
+　　解决这类内存问题主要有二种办法。第一种办法是，在所有作用范围为会话的Bean中实现HttpSessionBindingListener接口。这样，只要实现valueUnbound()方法，就可以显式地释放Bean使用的资源。
+　　另外一种办法就是尽快地把会话作废。大多数应用服务器都有设置会话作废间隔时间的选项。另外，也可以用编程的方式调用会话的 setMaxInactiveInterval()方法，该方法用来设定在作废会话之前，Servlet容器允许的客户请求的最大间隔时间，以秒计。
+　　2.11 HTTP Keep-Alive
+　　Keep-Alive功能使客户端到服务器端的连接持续有效，当出现对服务器的后继请求时，Keep-Alive功能避免了建立或者重新建立连接。市场上的大部分Web服务器，包括iPlanet、IIS和Apache，都支持HTTP Keep-Alive。对于提供静态内容的网站来说，这个功能通常很有用。但是，对于负担较重的网站来说，这里存在另外一个问题：虽然为客户保留打开的连接有一定的好处，但它同样影响了性能，因为在处理暂停期间，本来可以释放的资源仍旧被占用。当Web服务器和应用服务器在同一台机器上运行时，Keep- Alive功能对资源利用的影响尤其突出。
+　　2.12 JDBC与Unicode
+　　想必你已经了解一些使用JDBC时提高性能的措施，比如利用连接池、正确地选择存储过程和直接执行的SQL、从结果集删除多余的列、预先编译SQL语句，等等。
+　　除了这些显而易见的选择之外，另一个提高性能的好选择可能就是把所有的字符数据都保存为Unicode（代码页13488）。Java以Unicode形式处理所有数据，因此，数据库驱动程序不必再执行转换过程。但应该记住：如果采用这种方式，数据库会变得更大，因为每个Unicode字符需要2个字节存储空间。另外，如果有其他非Unicode的程序访问数据库，性能问题仍旧会出现，因为这时数据库驱动程序仍旧必须执行转换过程。
+　　2.13 JDBC与I/O
+　　如果应用程序需要访问一个规模很大的数据集，则应当考虑使用块提取方式。默认情况下，JDBC每次提取32行数据。举例来说，假设我们要遍历一个5000 行的记录集，JDBC必须调用数据库157次才能提取到全部数据。如果把块大小改成512，则调用数据库的次数将减少到10次。
+　　在一些情形下这种技术无效。例如，如果使用可滚动的记录集，或者在查询中指定了FOR UPDATE，则块操作方式不再有效。
+
+　　2.14 内存数据库
+　　许多应用需要以用户为单位在会话对象中保存相当数量的数据，典型的应用如购物篮和目录等。由于这类数据可以按照行/列的形式组织，因此，许多应用创建了庞大的Vector或HashMap。在会话中保存这类数据极大地限制了应用的可伸缩性，因为服务器拥有的内存至少必须达到每个会话占用的内存数量乘以并发用户最大数量，它不仅使服务器价格昂贵，而且垃圾收集的时间间隔也可能延长到难以忍受的程度。
+　　一些人把购物篮/目录功能转移到数据库层，在一定程度上提高了可伸缩性。然而，把这部分功能放到数据库层也存在问题，且问题的根源与大多数关系数据库系统的体系结构有关。对于关系数据库来说，运行时的重要原则之一是确保所有的写入操作稳定、可靠，因而，所有的性能问题都与物理上把数据写入磁盘的能力有关。关系数据库力图减少I/O操作，特别是对于读操作，但实现该目标的主要途径只是执行一套实现缓冲机制的复杂算法，而这正是数据库层第一号性能瓶颈通常总是 CPU的主要原因。
+　　一种替代传统关系数据库的方案是，使用在内存中运行的数据库（In-memory Database），例如TimesTen。内存数据库的出发点是允许数据临时地写入，但这些数据不必永久地保存到磁盘上，所有的操作都在内存中进行。这样，内存数据库不需要复杂的算法来减少I/O操作，而且可以采用比较简单的加锁机制，因而速度很快。 

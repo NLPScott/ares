@@ -1,0 +1,5 @@
+Exception是JAVA中为了处理异常而引入的一种异常处理架构
+JAVA 异常会造成性能问题 fillInStackTrace()方法是一个Synchronized native方法
+
+
+

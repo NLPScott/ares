@@ -1,0 +1,692 @@
+Hibernate是最流行的对象关系映射（ORM）引擎之一，它提供了数据持久化和查询服务。
+相关厂商内容
+
+Sybase在线研讨会：复杂事件处理与实时分析应用(资料下载)
+
+在你的项目中引入Hibernate并让它跑起来是很容易的。但是，要让它跑得好却是需要很多时间和经验的。
+
+通过我们的使用Hibernate 3.3.1和Oracle 9i的能源项目中的一些例子，本文涵盖了很多Hibernate调优技术。其中还提供了一些掌握Hibernate调优技术所必需的数据库知识。
+
+我们假设读者对Hibernate有一个基本的了解。如果一个调优方法在Hibernate 参考文档（下文简称HRD）或其他调优文章中有详细描述，我们仅提供一个对该文档的引用并从不同角度对其做简单说明。我们关注于那些行之有效，但又缺乏文档的调优方法。
+2.Hibernate性能调优
+
+调优是一个迭代的、持续进行的过程，涉及软件开发生命周期（SDLC）的所有阶段。在一个典型的使用Hibernate进行持久化的Java EE应用程序中，调优会涉及以下几个方面：
+
+    业务规则调优
+    设计调优
+    Hibernate调优
+    Java GC调优
+    应用程序容器调优
+    底层系统调优，包括数据库和OS。
+
+没有一套精心设计的方案就去进行以上调优是非常耗时的，而且很可能收效甚微。好的调优方法的重要部分是为调优内容划分优先级。可以用Pareto定律（又称“80/20法则”）来解释这一点，即通常80%的应用程序性能改善源自头20%的性能问题[5]。
+
+相比基于磁盘和网络的访问，基于内存和CPU的访问能提供更低的延迟和更高的吞吐量。这种基于IO的Hibernate调优与底层系统IO部分的调优应该优先于基于CPU和内存的底层系统GC、CPU和内存部分的调优。
+
+    范例1
+
+    我们调优了一个选择电流的HQL查询，把它从30秒降到了1秒以内。如果我们在垃圾回收方面下功夫，可能收效甚微——也许只有几毫秒或者最多几秒，相比HQL的改进，GC方面的改善可以忽略不计。
+
+好的调优方法的另一个重要部分是决定何时优化[4]。
+
+积极优化的提倡者主张开始时就进行调优，例如在业务规则和设计阶段，在整个SDLC都持续进行优化，因为他们认为后期改变业务规则和重新设计代价太大。
+
+另一派人提倡在SDLC末期进行调优，因为他们抱怨前期调优经常会让设计和编码变得复杂。他们经常引用Donald Knuth的名言“过早优化是万恶之源” [6]。
+
+为了平衡调优和编码需要一些权衡。根据笔者的经验，适当的前期调优能带来更明智的设计和细致的编码。很多项目就失败在应用程序调优上，因为上面提到的“过早优化”阶段在被引用时脱离了上下文，而且相应的调优不是被推迟得太晚就是投入资源过少。
+
+但是，要做很多前期调优也不太可能，因为没有经过剖析，你并不能确定应用程序的瓶颈究竟在何处，应用程序一般都是这样演化的。
+
+对我们的多线程企业级应用程序的剖析也表现出大多数应用程序平均只有20-50%的CPU使用率。剩余的CPU开销只是在等待数据库和网络相关的IO。
+
+基于上述分析，我们得出这样一个结论，结合业务规则和设计的Hibernate调优在Pareto定律中20%的那个部分，相应的它们的优先级更高。
+
+一种比较实际的做法是：
+
+    识别出主要瓶颈，可以预见其中多数是Hibernate、业务规则和设计方面的（其数量视你的调优目标而定；但三到五个是不错的开端）。
+    修改应用程序以便消除这些瓶颈。
+    测试应用程序，然后重复步骤1，直到达到你的调优目标为止。
+
+你能在Jack Shirazi的《Java Performance Tuning》 [7]一书中找到更多关于性能调优阶段的常见建议。
+
+下面的章节中，我们会按照调优的大致顺序（列在前面的通常影响最大）去解释一些特定的调优技术。
+3. 监控和剖析
+
+没有对Hibernate应用程序的有效监控和剖析，你无法得知性能瓶颈以及何处需要调优。
+3.1.1 监控SQL生成
+
+尽管使用Hibernate的主要目的是将你从直接使用SQL的痛苦中解救出来，为了对应用程序进行调优，你必须知道Hibernate生成了哪些SQL。JoeSplosky在他的《The Law of Leaky Abstractions》一文中详细描述了这个问题。
+
+你可以在log4j中将org.hibernate.SQL包的日志级别设为DEBUG，这样便能看到生成的所有SQL。你还可以将其他包的日志级别设为DEBUG，甚至TRACE来定位一些性能问题。
+3.1.2 查看Hibernate统计
+
+如果开启hibernate.generate.statistics，Hibernate会导出实体、集合、会话、二级缓存、查询和会话工厂的统计信息，这对通过SessionFactory.getStatistics()进行的调优很有帮助。为了简单起见，Hibernate还可以使用MBean“org.hibernate.jmx.StatisticsService”通过JMX来导出统计信息。你可以在这个网站找到配置范例 。
+3.1.3 剖析
+
+一个好的剖析工具不仅有利于Hibernate调优，还能为应用程序的其他部分带来好处。然而，大多数商业工具（例如JProbe [10]）都很昂贵。幸运的是Sun/Oracle的JDK1.6自带了一个名为“Java VisualVM” [11]的调试接口。虽然比起那些商业竞争对手，它还相当基础，但它提供了很多调试和调优信息。
+4. 调优技术
+4.1 业务规则与设计调优
+
+尽管业务规则和设计调优并不属于Hibernate调优的范畴，但此处的决定对后面Hibernate的调优有很大影响。因此我们特意指出一些与Hibernate调优有关的点。
+
+在业务需求收集与调优过程中，你需要知道：
+
+    数据获取特性包括引用数据（reference data）、只读数据、读分组（read group）、读取大小、搜索条件以及数据分组和聚合。
+    数据修改特性包括数据变更、变更组、变更大小、无效修改补偿、数据库（所有变更都在一个数据库中或在多个数据库中）、变更频率和并发性，以及变更响应和吞吐量要求。
+    数据关系，例如关联（association）、泛化（generalization）、实现（realization）和依赖（dependency）。
+
+基于业务需求，你会得到一个最优设计，其中决定了应用程序类型（是OLTP还是数据仓库，亦或者与其中某一种比较接近）和分层结构（将持久层和服务层分离还是合并），创建领域对象（通常是POJO），决定数据聚合的地方（在数据库中进行聚合能利用强大的数据库功能，节省网络带宽；但是除了像COUNT、SUM、AVG、MIN和MAX这样的标准聚合，其他的聚合通常不具有移植性。在应用服务器上进行聚合允许你应用更复杂的业务逻辑；但你需要先在应用程序中载入详细的数据）。
+
+    范例2
+
+    分析员需要查看一个取自大数据表的电流ISO（Independent System Operator）聚合列表。最开始他们想要显示大多数字段，尽管数据库能在1分钟内做出响应，应用程序也要花30分钟将1百万行数据加载到前端UI。经过重新分析，分析员保留了14个字段。因为去掉了很多可选的高聚合度字段，从剩下的字段中进行聚合分组返回的数据要少很多，而且大多数情况下的数据加载时间也缩小到了可接受的范围内。
+
+    范例3
+
+    过24个“非标准”（shaped，表示每小时都可以有自己的电量和价格；如果所有24小时的电量和价格相同，我们称之为“标准”）小时会修改小时电流交易，其中包括2个属性：每小时电量和价格。起初我们使用Hibernate的select-before-update特性，就是更新24行数据需要24次选择。因为我们只需要2个属性，而且如果不修改电量或价格的话也没有业务规则禁止无效修改，我们就关闭了select-before-update特性，避免了24次选择。
+
+4.2继承映射调优
+
+尽管继承映射是领域对象的一部分，出于它的重要性我们将它单独出来。HRD [1]中的第9章“继承映射”已经说得很清楚了，所以我们将关注SQL生成和针对每个策略的调优建议。
+
+以下是HRD中范例的类图：
+
+
+4.2.1 每个类层次一张表
+
+只需要一张表，一条多态查询生成的SQL大概是这样的：
+
+select id, payment_type, amount, currency, rtn, credit_card_type from payment
+
+针对具体子类（例如CashPayment）的查询生成的SQL是这样的：
+
+select id, amount, currency from payment where payment_type=’CASH’ 
+
+这样做的优点包括只有一张表、查询简单以及容易与其他表进行关联。第二个查询中不需要包含其他子类中的属性。所有这些特性让该策略的性能调优要比其他策略容易得多。这种方法通常比较适合数据仓库系统，因为所有数据都在一张表里，不需要做表连接。
+
+主要的缺点整个类层次中的所有属性都挤在一张大表里，如果有很多子类特有的属性，数据库中就会有太多字段的取值为null，这为当前基于行的数据库（使用基于列的DBMS的数据仓库处理这个会更好些）的SQL调优增加了难度。除非进行分区，否则唯一的数据表会成为热点，OLTP系统通常在这方面都不太好。
+4.2.2每个子类一张表
+
+需要4张表，多态查询生成的SQL如下：
+
+select id, payment_type, amount, currency, rtn, credit_card type,
+        case when c.payment_id is not null then 1
+             when ck.payment_id is not null then 2
+             when cc.payment_id is not null then 3
+             when p.id is not null then 0 end as clazz
+
+from payment p left join cash_payment c on p.id=c.payment_id left join
+   cheque_payment ck on p.id=ck.payment_id left join 
+
+   credit_payment cc on p.id=cc.payment_id; 
+
+针对具体子类（例如CashPayment）的查询生成的SQL是这样的：
+
+select id, payment_type, amount, currency
+from payment p left join cash_payment c on p.id=c.payment_id; 
+
+优点包括数据表比较紧凑（没有不需要的可空字段），数据跨三个子类的表进行分区，容易使用超类的表与其他表进行关联。紧凑的数据表可以针对基于行的数据库做存储块优化，让SQL执行得更好。数据分区增加了数据修改的并发性（除了超类，没有热点），OLTP系统通常会更好些。
+
+同样的，第二个查询不需要包含其他子类的属性。
+
+缺点是在所有策略中它使用的表和表连接最多，SQL语句稍显复杂（看看Hibernate动态鉴别器的长CASE子句）。相比单张表，数据库要花更多时间调优数据表连接，数据仓库在使用该策略时通常不太理想。
+
+因为不能跨超类和子类的字段来建立复合索引，如果需要按这些列进行查询，性能会受影响。任何子类数据的修改都涉及两张表：超类的表和子类的表。
+4.2.3每个具体类一张表
+
+涉及三张或更多的表，多态查询生成的SQL是这样的：
+
+select p.id, p.amount, p.currency, p.rtn, p. credit_card_type, p.clazz
+from (select id, amount, currency, null as rtn,null as credit_card type,
+             1 as clazz from cash_payment union all
+
+      select id, amount, null as currency, rtn,null as credit_card type,
+             2 as clazz from cheque_payment union all
+
+      select id, amount, null as currency, null as rtn,credit_card type,
+             3 as clazz from credit_payment) p;  
+
+针对具体子类（例如CashPayment）的查询生成的SQL是这样的：
+
+select id, payment_type, amount, currency from cash_payment; 
+
+优点和上面的“每个子类一张表”策略相似。因为超类通常是抽象的，所以具体的三张表是必须的[开头处说的3张或更多的表是必须的]，任何子类的数据修改只涉及一张表，运行起来更快。
+
+缺点是SQL（from子句和union all子查询）太复杂。但是大多数数据库对此类SQL的调优都很好。
+
+如果一个类想和Payment超类关联，数据库无法使用引用完整性（referential integrity）来实现它；必须使用触发器来实现它。这对数据库性能有些影响。
+4.2.4使用隐式多态实现每个具体类一张表
+
+只需要三张表。对于Payment的多态查询生成三条独立的SQL语句，每个对应一个子类。Hibernate引擎通过Java反射找出Payment的所有三个子类。
+
+具体子类的查询只生成该子类的SQL。这些SQL语句都很简单，这里就不再阐述了。
+
+它的优点和上节类似：紧凑数据表、跨三个具体子类的数据分区以及对子类任意数据的修改都只涉及一张表。
+
+缺点是用三条独立的SQL语句代替了一条联合SQL，这会带来更多网络IO。Java反射也需要时间。假设如果你有一大堆领域对象，你从最上层的Object类进行隐式选择查询，那该需要多长时间啊！
+
+根据你的映射策略制定合理的选择查询并非易事；这需要你仔细调优业务需求，基于特定的数据场景制定合理的设计决策。
+
+以下是一些建议：
+
+    设计细粒度的类层次和粗粒度的数据表。细粒度的数据表意味着更多数据表连接，相应的查询也会更复杂。
+    如非必要，不要使用多态查询。正如上文所示，对具体类的查询只选择需要的数据，没有不必要的表连接和联合。
+    “每个类层次一张表”对有高并发、简单查询并且没有共享列的OLTP系统来说是个不错的选择。如果你想用数据库的引用完整性来做关联，那它也是个合适的选择。
+    “每个具体类一张表”对有高并发、复杂查询并且没有共享列的OLTP系统来说是个不错的选择。当然你不得不牺牲超类与其他类之间的关联。
+    采用混合策略，例如“每个类层次一张表”中嵌入“每个子类一张表”，这样可以利用不同策略的优势。随着你项目的进化，如果你要反复重新映射，那你可能也会采用该策略。
+    “使用隐式多态实现每个具体类一张表”这种做法并不推荐，因为其配置过于繁缛、使用“any”元素的复杂关联语法和隐式查询的潜在危险性。
+
+    范例4
+
+    下面是一个交易描述应用程序的部分领域类图：
+
+    开始时，项目只有GasDeal和少数用户，它使用“每个类层次一张表”。
+
+    OilDeal和ElectricityDeal是后期产生更多业务需求后加入的。没有改变映射策略。但是ElectricityDeal有太多自己的属性，因此有很多电相关的可空字段加入了Deal表。因为用户量也在增长，数据修改变得越来越慢。
+
+    重新设计时我们使用了两张单独的表，分别针对气/油和电相关的属性。新的映射混合了“每个类层次一张表”和“每个子类一张表”。我们还重新设计了查询，以便允许针对具体交易子类进行选择，消除不必要的列和表连接。
+
+4.3 领域对象调优
+
+基于4.1节中对业务规则和设计的调优，你得到了一个用POJO来表示的领域对象的类图。我们建议：
+4.3.1 POJO调优
+
+    从读写数据中将类似引用这样的只读数据和以读为主的数据分离出来。
+    只读数据的二级缓存是最有效的，其次是以读为主的数据的非严格读写。将只读POJO标识为不可更改的（immutable）也是一个调优点。如果一个服务层方法只处理只读数据，可以将它的事务标为只读，这是优化Hibernate和底层JDBC驱动的一个方法。
+    细粒度的POJO和粗粒度的数据表。
+    基于数据的修改并发量和频率等内容来分解大的POJO。尽管你可以定义一个粒度非常细的对象模型，但粒度过细的表会导致大量表连接，这对数据仓库来说是不能接受的。
+    优先使用非final的类。
+    Hibernate只会针对非final的类使用CGLIB代理来实现延时关联获取。如果被关联的类是final的，Hibernate会一次加载所有内容，这对性能会有影响。
+    使用业务键为分离（detached）实例实现equals()和hashCode()方法。
+    在多层系统中，经常可以在分离对象上使用乐观锁来提升系统并发性，达到更高的性能。
+    定义一个版本或时间戳属性。
+    乐观锁需要这个字段来实现长对话（应用程序事务）[译注：session译为会话，conversion译为对话，以示区别]。
+    优先使用组合POJO。
+    你的前端UI经常需要来自多个不同POJO的数据。你应该向UI传递一个组合POJO而不是独立的POJO以获得更好的网络性能。
+    有两种方式在服务层构建组合POJO。一种是在开始时加3.2载所有需要的独立POJO，随后抽取需要的属性放入组合POJO；另一种是使用HQL投影，直接从数据库中选择需要的属性。
+    如果其他地方也要查找这些独立POJO，可以把它们放进二级缓存以便共享，这时第一种方式更好；其他情况下第二种方式更好。
+
+4.3.2 POJO之间关联的调优
+
+    如果可以用one-to-one、one-to-many或many-to-one的关联，就不要使用many-to-many。
+    many-to-many关联需要额外的映射表。
+    尽管你的Java代码只需要处理两端的POJO，但查询时，数据库需要额外地关联映射表，修改时需要额外的删除和插入。
+    单向关联优先于双向关联。
+    由于many-to-many的特性，在双向关联的一端加载对象会触发另一端的加载，这会进一步触发原始端加载更多的数据，等等。
+    one-to-many和many-to-one的双向关联也是类似的，当你从多端（子实体）定位到一端（父实体）。
+    这样的来回加载很耗时，而且可能也不是你所期望的。
+    不要为了关联而定义关联；只在你需要一起加载它们时才这么做，这应该由你的业务规则和设计来决定（见范例5）。
+    另外，你要么不定义任何关联，要么在子POJO中定义一个值类型的属性来表示父POJO的ID（另一个方向也是类似的）。
+    集合调优
+    如果集合排序逻辑能由底层数据库实现，就使用“order-by”属性来代替“sort”，因为通常数据库在这方面做得比你好。
+    集合可以是值类型的（元素或组合元素），也可以是实体引用类型的（one-to-many或many-to-many关联）。对引用类型集合的调优主要是调优获取策略。对于值类型集合的调优，HRD [1]中的20.5节“理解集合性能”已经做了很好的阐述。
+    获取策略调优。请见4.7节的范例5。
+
+    范例5
+
+    我们有一个名为ElectricityDeals的核心POJO用于描述电的交易。从业务角度来看，它有很多many-to-one关联，例如和Portfolio、Strategy和Trader等的关联。因为引用数据十分稳定，它们被缓存在前端，能基于其ID属性快速定位到它们。
+
+    为了有好的加载性能，ElectricityDeal只映射元数据，即那些引用POJO的值类型ID属性，因为在需要时，可以在前端通过portfolioKey从缓存中快速查找Portfolio：
+
+    <property name="portfolioKey" column="PORTFOLIO_ID" type="integer"/> 
+
+    这种隐式关联避免了数据库表连接和额外的字段选择，降低了数据传输的大小。
+
+4.4 连接池调优
+
+由于创建物理数据库连接非常耗时，你应该始终使用连接池，而且应该始终使用生产级连接池而非Hibernate内置的基本连接池算法。
+
+通常会为Hibernate提供一个有连接池功能的数据源。Apache DBCP的BasicDataSource[13]是一个流行的开源生产级数据源。大多数数据库厂商也实现了自己的兼容JDBC 3.0的连接池。举例来说，你也可以使用Oracle ReaApplication Cluster [15]提供的JDBC连接池[14]以获得连接的负载均衡和失败转移。
+
+不用多说，你在网上能找到很多关于连接池调优的技术，因此我们只讨论那些大多数连接池所共有的通用调优参数：
+
+    最小池大小：连接池中可保持的最小连接数。
+    最大池大小：连接池中可以分配的最大连接数。
+    如果应用程序有高并发，而最大池大小又太小，连接池就会经常等待。相反，如果最小池大小太大，又会分配不需要的连接。
+    最大空闲时间：连接池中的连接被物理关闭前能保持空闲的最大时间。
+    最大等待时间：连接池等待连接返回的最大时间。该参数可以预防失控事务（runaway transaction）。
+    验证查询：在将连接返回给调用方前用于验证连接的SQL查询。这是因为一些数据库被配置为会杀掉长时间空闲的连接，网络或数据库相关的异常也可能会杀死连接。为了减少此类开销，连接池在空闲时会运行该验证。
+
+4.5事务和并发的调优
+
+短数据库事务对任何高性能、高可扩展性的应用程序来说都是必不可少的。你使用表示对话请求的会话来处理单个工作单元，以此来处理事务。
+
+考虑到工作单元的范围和事务边界的划分，有3中模式：
+
+    每次操作一个会话。每次数据库调用需要一个新会话和事务。因为真实的业务事务通常包含多个此类操作和大量小事务，这一般会引起更多数据库活动（主要是数据库每次提交需要将变更刷新到磁盘上），影响应用程序性能。这是一种反模式，不该使用它。
+    使用分离对象，每次请求一个会话。每次客户端请求有一个新会话和一个事务，使用Hibernate的“当前会话”特性将两者关联起来。
+    在一个多层系统中，用户通常会发起长对话（或应用程序事务）。大多数时间我们使用Hibernate的自动版本和分离对象来实现乐观并发控制和高性能。
+    带扩展（或长）会话的每次对话一会话。在一个也许会跨多个事务的长对话中保持会话开启。尽管这能把你从重新关联中解脱出来，但会话可能会内存溢出，在高并发系统中可能会有旧数据。
+
+你还应该注意以下几点。 
+
+    如果不需要JTA就用本地事务，因为JTA需要更多资源，比本地事务更慢。就算你有多个数据源，除非有跨多个数据库的事务，否则也不需要JTA。在最后的一个场景下，可以考虑在每个数据源中使用本地事务，使用一种类似“Last Resource Commit Optimization”[16]的技术（见下面的范例6）。
+    如果不涉及数据变更，将事务标记为只读的，就像4.3.1节提到的那样。
+    总是设置默认事务超时。保证在没有响应返回给用户时，没有行为不当的事务会完全占有资源。这对本地事务也同样有效。
+    如果Hibernate不是独占数据库用户，乐观锁会失效，除非创建数据库触发器为其他应用程序对相同数据的变更增加版本字段值。
+
+    范例6
+
+    我们的应用程序有多个在大多数情况下只和数据库“A”打交道的服务层方法；它们偶尔也会从数据库“B”中获取只读数据。因为数据库“B”只提供只读数据，我们对这些方法在这两个数据库上仍然使用本地事务。
+
+    服务层上有一个方法设计在两个数据库上执行数据变更。以下是伪代码：
+
+    //Make sure a local transaction on database A exists
+    @Transactional (readOnly=false, propagation=Propagation.REQUIRED)
+    public void saveIsoBids() {
+      //it participates in the above annotated local transaction
+      insertBidsInDatabaseA();
+
+      //it runs in its own local transaction on database B 
+      insertBidRequestsInDatabaseB(); //must be the last operation 
+
+    因为insertBidRequestsInDatabaseB()是saveIsoBids ()中的最后一个方法，所以只有下面的场景会造成数据不一致：
+
+    在saveIsoBids()执行返回时，数据库“A”的本地事务提交失败。
+
+    但是，就算saveIsoBids()使用JTA，在两阶段提交（2PC）的第二个提交阶段失败的时候，你还是会碰到数据不一致。因此如果你能处理好上述的数据不一致性，而且不想为了一个或少数几个方法引入JTA的复杂性，你应该使用本地事务。
+
+
+4.6 HQL调优
+4.6.1 索引调优
+
+HQL看起来和SQL很相似。从HQL的WHERE子句中通常可以猜到相应的SQL WHERE子句。WHERE子句中的字段决定了数据库将选择的索引。
+
+大多数Hibernate开发者所常犯的一个错误是无论何时，当需要新WHERE子句的时候都会创建一个新的索引。因为索引会带来额外的数据更新开销，所以应该争取创建少量索引来覆盖尽可能多的查询。
+4.1节让你使用一个集合来处理所有可能的数据搜索条件。如果这不太实际，那么你可以使用后端剖析工具来创建一个针对应用程序涉及的所有SQL的集合。基于那些搜索条件的分类，你最终会得到一个小的索引集。与此同时，还可以尝试向WHERE子句中添加额外的谓语来匹配其他WHERE子句。
+
+    范例7
+
+    有两个UI搜索器和一个后端守护进程搜索器来搜索名为iso_deals的表。第一个UI搜索器在unexpectedFlag、dealStatus、tradeDate和isold属性上有谓语。
+
+    第二个UI搜索器基于用户键入的过滤器，其中包括的内容除tradeDate和isold以外还有其他属性。开始时所有这些过滤器属性都是可选的。
+    后端搜索器基于isold、participantCode和transactionType属性。
+    经过进一步业务分析，发现第二个UI搜索器实际是基于一些隐式的unexpectedFlag和dealStatus值来选择数据的。我们还让tradeDate成为过滤器的必要属性（为了使用数据库索引，每个搜索过滤器都应该有必要属性）。
+
+    鉴于这一点，我们依次使用unexpectedFlag、dealStatus、tradeDate和isold构造了一个复合索引。两个UI搜索器都能共用它。（顺序很重要，如果你的谓语以不同的顺序指定这些属性或在它们前罗列了其他属性，数据库就不会选择该复合索引。）
+
+    后端搜索器和UI搜索器区别太大，因此我们不得不为它构造另一个复合索引，依次使用isold、participantCode和transactionType。
+
+4.6.2绑定参数 vs.字符串拼接
+
+既可以使用绑定参数构造HQL的WHERE子句，也可以使用字符串拼接的方法，该决定对性能会有一定影响。使用绑定参数的原因是让数据库一次解析SQL，对后续的重复请求复用生成好的执行计划，这样做节省了CPU时间和内存。然而，为达到最优的数据访问效率，不同的绑定值可能需要不同的SQL执行计划。
+
+例如，一小段数据范围可能只返回数据总量的5%，而一大段数据范围可能返回数据总量的90%。前者使用索引更好，而后者则最好使用全表扫描。
+
+建议OLTP使用绑定参数，数据仓库使用字符串拼接，因为OLTP通常在一个事务中重复插入和更新数据，只取少量数据；数据仓库通常只有少量SQL查询，有一个确定的执行计划比节省CPU时间和内存更为重要。
+
+要是你知道你的OLTP搜索对不同绑定值应该使用相同执行计划又该怎么办呢？
+
+Oracle 9i及以后版本在第一次调用绑定参数并生成执行计划时能探出参数值。后续调用不会再探测，而是重用之前的执行计划。
+4.6.3聚合及排序
+
+你可以在数据库中进行聚合和“order by”，也可以在应用程序的服务层中事先加载所有数据然后做聚合和“order by”操作。推荐使用前者，因为数据库在这方面通常会比你的应用程序做得好。此外，这样做还能节省网络带宽，这也是一种拥有跨数据库移植性的做法。
+
+当你的应用程序对数据聚合和排序有HQL不支持的特定业务规则时除外。
+4.6.4覆盖抓取策略
+
+详见4.7.1节。
+4.6.5本地查询
+
+本地查询调优其实并不直接与HQL有关。但HQL的确可以让你直接向底层数据库传递本地查询。我们并不建议这么做，因为本地查询在数据库间不可移植。
+4.7抓取策略调优
+
+抓取策略决定了在应用程序需要访问关联对象时，Hibernate以何种方式以及何时获取关联对象。HRD中的第20章“改善性能”对该主题作了很好的阐述，我们在此将关注它的使用方法。
+4.7.1覆盖抓取策略
+
+不同的用户可能会有不同的数据抓取要求。Hibernate允许在两个地方定义数据抓取策略，一处是在映射元数据中，另一处是在HQL或Criteria中覆盖它。
+
+常见的做法是基于主要的抓取用例在映射元数据中定义默认抓取策略，针对少数用例在HQL和Criteria中覆盖抓取策略。
+
+假设pojoA和pojoB是父子关系实例。如果根据业务规则，只是偶尔需要从实体两端加载数据，那你可以声明一个延迟加载集合或代理抓取（proxy fetching）。当你需要从实体两端获取数据时，可以用立即抓取（eager fetching）覆盖默认策略，例如使用HQL或Criteria配置连接抓取（join fetching）。
+
+另一方面，如果业务规则在大多数时候需要从实体两端加载数据，那么你可以声明立即抓取并在Criteria中设置延迟加载集合或代理抓取来覆盖它（HQL目前还不支持这样的覆盖）。
+4.7.2 N+1模式或是反模式？
+
+select抓取会导致N+1问题。如果你知道自己总是需要从关联中加载数据，那么就该始终使用连接抓取。在下面两个场景中，你可能会把N+1视为一种模式而非反模式。
+
+第一种场景，你不知道用户是否会访问关联对象。如果他/她没有访问，那么你赢了；否则你仍然需要额外的N次select SQL语句。这是一种令人左右为难的局面。
+
+第二种场景，pojoA和很多其他POJO有one-to-many关联，例如pojoB和pojoC。使用立即的内连接或外连接抓取会在结果集中将pojoA重复很多次。当pojoA中有很多非空属性时，你不得不将大量数据加载到持久层中。这种加载需要很多时间，既有网络带宽的原因，如果Hibernate的会话是有状态的，其中也会有会话缓存的原因（内存消耗和GC暂停）。
+
+如果你有一个很长的one-to-many关联链，例如从pojoA到pojoB到pojoC以此类推，情况也是类似的。
+
+你也许会去使用HQL中的DISTINCT关键字或Cirteria中的distinct功能或是Java的Set接口来消除重复数据。但所有这些都是在Hibernate（在持久层）中实现的，而非数据库中。
+
+如果基于你的网络和内存配置的测试表明N+1性能更好，那么你可以使用批量抓取、subselect抓取或二级缓存来做进一步调优。
+
+    范例8
+
+    以下是一个使用批量抓取的HBM文件片段：
+
+    <class name="pojoA" table="pojoA">
+    …
+    <set name="pojoBs" fetch="select" batch-size="10">
+
+    <key column="pojoa_id"/>
+    …
+    </set>
+    </class> 
+
+    以下是多端pojoB生成的SQL：
+
+    select … from pojoB where pojoa_id in(?,?,?,?,?, ?,?,?,?,?);
+
+    问号数量与batch-size值相等。因此N次额外的关于pojoB的select SQL语句被减少到了N/10次。
+
+    如果将fetch="select"替换成fetch="subselect"，pojoB生成的SQL语句就是这样的：
+
+    select … from pojoB where pojoa_id in(select id from pojoA where …); 
+
+    尽管N次额外的select减少到1次，但这只在重复运行pojoA的查询开销很低时才有好处。
+
+    如果pojoA中的pojoB集合很稳定，或pojoB有pojoA的many-to-one关联，而且pojoA是只读引用数据，那么你可以使用二级缓存来缓存pojoA以消除N+1问题（4.8.1节中有一个例子）。
+
+4.7.3延迟属性抓取
+
+除非有一张拥有很多你不需要的字段的遗留表，否则不应该使用这种抓取策略，因为它的延迟属性分组会带来额外的SQL。
+
+在业务分析和设计过程中，你应该将不同数据获取或修改分组放到不同的领域对象实体中，而不是使用这种抓取策略。
+
+如果不能重新设计遗留表，可以使用HQL或Criteria提供的投影功能来获取数据。
+4.8 二级缓存调优
+
+HRD第20.2节 “二级缓存”中的描述对大多数开发者来说过于简单，无法做出选择。3.3版及以后版本不再推荐使用基于“CacheProvider”的缓存，而用基于“RegionFactory”的缓存，这也让人更糊涂了。但是就算是最新的3.5参考文档也没有提及如何使用新缓存方法。
+
+出于下述考虑，我们将继续关注于老方法：
+
+    所有流行的Hibernate二级缓存提供商中只有JBoss Cache 2、Infinispan 4和Ehcache 2支持新方法。OSCache、SwarmCache、Coherence和Gigaspaces XAP-Data Grid只支持老方法。
+    两种方法共用相同的<cache>配置。例如，它们仍旧使用相同的usage属性值“transactional|read-write|nonstrict-read-write|read-only”。
+    多个cache-region适配器仍然内置老方法的支持，理解它能帮助你快速理解新方法。
+
+4.8.1 基于CacheProvider的缓存机制
+
+理解该机制是做出合理选择的关键。关键的类/接口是CacheConcurrencyStrategy和它针对4中不同缓存使用的实现类，还有EntityUpdate/Delete/InsertAction。
+
+针对并发缓存访问，有三种实现模式：
+
+    针对“read-only”的只读模式。
+
+    无论是锁还是事务都没影响，因为缓存自数据从数据库加载后就不会改变。
+    针对“read-write”和“nonstrict-read-write”的非事务感知（non-transaction-aware）读写模式。
+
+    对缓存的更新发生在数据库事务完成后。缓存需要支持锁。
+    针对“transactional”的事务感知读写。
+
+    对缓存和数据库的更新被包装在同一个JTA事务中，这样缓存与数据库总是保持同步的。数据库和缓存都必须支持JTA。尽管缓存事务内部依赖于缓存锁，但Hibernate不会显式调用任何的缓存锁函数。
+
+以数据库更新为例。EntityUpdateAction对于事务感知读写、“read-write”的非事务感知读写，还有“nonstrict-read-write”的非事务感知读写相应有如下调用序列：
+
+    在一个JTA事务中更新数据库；在同一个事务中更新缓存。
+    软锁缓存；在一个事务中更新数据库；在上一个事务成功完成后更新缓存；否则释放软锁。
+
+    软锁只是一种特定的缓存值失效表述方式，在它获得新数据库值前阻止其他事务读写缓存。那些事务会转而直接读取数据库。
+
+    缓存必须支持锁；事务支持则不是必须的。如果缓存是一个集群，“更新缓存”的调用会将新值推送给所有副本，这通常被称为“推（push）”更新策略。
+    在一个事务中更新数据库；在上一个事务完成前就清除缓存；为了安全起见，无论事务成功与否，在事务完成后再次清除缓存。
+
+    既不需要支持缓存锁，也不需要支持事务。如果是缓存集群，“清除缓存”调用会让所有副本都失效，这通常被称为“拉（pull）”更新策略。
+
+对于实体的删除或插入动作，或者集合变更，调用序列都是相似的。
+
+实际上，最后两个异步调用序列仍能保证数据库和缓存的一致性（基本就是“read committed”的隔离了级别），这要归功于第二个序列中的软锁和“更新数据库”后的“更新缓存”，还有最后一个调用序列中的悲观“清除缓存”。
+
+基于上述分析，我们的建议是： 
+
+    如果数据是只读的，例如引用数据，那么总是使用“read-only”策略，因为它是最简单、最高效的策略，也是集群安全的策略。
+    除非你真的想将缓存更新和数据库更新放在一个JTA事务里，否则不要使用“transactional”策略，因为JTA需要漫长的两阶段提交处理，这导致它基本是性能最差的策略。
+
+    依笔者看来，二级缓存并非一级数据源，因此使用JTA也未必合理。实际上最后两个调用序列在大多数场景下是个不错的替代方案，这要归功于它们的数据一致性保障。
+    如果你的数据读很多或者很少有并发缓存访问和更新，那么可以使用“nonstrict-read-write”策略。感谢它的轻量级“拉”更新策略，它通常是性能第二好的策略。
+    如果你的数据是又读又写的，那么使用“read-write”策略。这通常是性能倒数第二的策略，因为它要求有缓存锁，缓存集群中使用重量级的“推”更新策略。
+
+    范例9
+
+    以下是一个ISO收费类型的HBM文件片段：
+
+    <class name="IsoChargeType">
+       <property name="isoId" column="ISO_ID" not-null="true"/>
+
+       <many-to-one name="estimateMethod" fetch="join" lazy="false"/>
+
+       <many-to-one  name="allocationMethod" fetch="join" lazy="false"/>
+
+       <many-to-one name="chargeTypeCategory" fetch="join" lazy="false"/>
+
+    </class> 
+
+    一些用户只需要ISO收费类型本身；一些用户既需要ISO收费类型，还需要它的三个关联对象。简单起见，开发者会立即加载所有三个关联对象。如果项目中没人负责Hibernate调优，这是很常见的。
+
+    4.7.1节中讲过了最好的方法。因为所有的关联对象都是只读引用数据，另一种方法是使用延迟抓取，打开这些对象的二级缓存以避免N+1问题。实际上前一种方法也能从引用数据缓存中获益。
+
+    因为大多数项目都有很多被其他数据引用的只读引用数据，上述两种方法都能改善全局系统性能。
+
+4.8.2 RegionFactory
+
+下表是新老两种方法中对应的主要类/接口：
+
+新方法
+	
+
+老方法
+
+RegionFactory
+	
+
+CacheProvider
+
+Region
+	
+
+Cache
+
+EntityRegionAccessStrategy
+	
+
+CacheConcurrencyStrategy
+
+CollectionRegionAccessStrategy
+	
+
+CacheConcurrencyStrategy
+
+第一个改进是RegionFactory构建了特定的Region，例如EntityRegion和TransactionRegion，而不是使用一个通用的访问Region。第二个改进是对于特定缓存的“usage”属性值，Region要求构建自己的访问策略，而不是所有Region都一直使用CacheConcurrencyStrategy的4种实现。
+
+要使用新方法，应该设置factory_class而非provider_class配置属性。以Ehcache 2.0为例：
+
+<property name="hibernate.cache.region.factory_class">
+        net.sf.ehcache.hibernate.EhCacheRegionFactory  
+</property>
+
+其他相关的Hibernate缓存配置都和老方法一样。
+
+新方法也能向后兼容遗留方法。如果还是只配了CacheProvider，新方法中将使用下列自说明（self-explanatory）适配器和桥隐式地调用老的接口/类：
+
+RegionFactoryCacheProviderBridge、EntityRegionAdapter、CollectionRegionAdapter、QueryResultsRegionAdapter、EntityAccessStrategyAdapter和CollectionAccessStrategyAdapter
+4.8.3 查询缓存
+
+二级缓存也能缓存查询结果。如果查询开销很大而且要重复运行，这也会很有帮助。
+4.9批量处理调优
+
+大多数Hibernate的功能都很适合那些每个事务都通常只处理少量数据的OLTP系统。但是，如果你有一个数据仓库或者事务需要处理大量数据，那么就另当别论了。
+4.9.1使用有状态会话的非DML风格批处理
+
+如果你已经在使用常规会话了，那这是最自然的方法。你需要做三件事：
+
+    配置下列3个属性以开启批处理特性：
+
+      hibernate.jdbc.batch_size 30
+      hibernate.jdbc.batch_versioned_data true
+      hibernate.cache.use_second_level_cache false
+
+    batch_size设置为正值会开启JDBC2的批量更新，Hibernate的建议值是5到30。基于我们的测试，极低值和极高值性能都很差。只要取值在合理范围内，区别就只有几秒而已。如果网络够快，这个结果是一定的。
+
+    第二个配置设为true，这要求JDBC驱动在executeBatch()方法中返回正确的行数。对于Oracle用户而言，批量更新时不能将其设为true。请阅读Oracle的《JDBC Developer’s Guide and Reference》中的“标准批处理的Oracle实现中的更新计数”（Update Counts in the Oracle Implementation of Standard Batching）以获得更多详细信息。因为它对批量插入来说还是安全的，所以你可以为批量插入创建单独的专用数据源。最后一个配置项是可选的，因为你可以在会话中显式关闭二级缓存。
+    像如下范例中那样定期刷新（flush）并清除一级会话缓存：
+
+     Session session = sessionFactory.openSession();
+     Transaction tx = session.beginTransaction();
+
+     for ( int i=0; i<100000; i++ ) {
+         Customer customer = new Customer(.....);
+         //if your hibernate.cache.use_second_level_cache is true, call the following:
+         session.setCacheMode(CacheMode.IGNORE);
+         session.save(customer);
+         if (i % 50 == 0) { //50, same as the JDBC batch size
+         //flush a batch of inserts and release memory:
+         session.flush();
+         session.clear();
+         }
+     }
+     tx.commit();
+     session.close();
+
+    批处理通常不需要数据缓存，否则你会将内存耗尽并大量增加GC开销。如果内存有限，那这种情况会很明显。
+    总是将批量插入嵌套在事务中。
+
+每次事务修改的对象数量越少就意味着会有更多数据库提交，正如4.5节所述每次提交都会带来磁盘相关的开销。
+
+另一方面，每次事务修改的对象数量越多就意味着锁定变更时间越长，同时数据库需要更大的redo log。
+4.9.2使用无状态会话的非DML风格批处理
+
+无状态会话执行起来比上一种方法更好，因为它只是JDBC的简单包装，而且可以绕开很多常规会话要求的操作。例如，它不需要会话缓存，也不和任何二级缓存或查询缓存有交互。
+然而它的用法并不简单。尤其是它的操作并不会级联到所关联的实例上；你必须自己来处理它们。
+4.9.3 DML风格
+
+使用DML风格的插入、更新或删除，你直接在数据库中操作数据，这和前两种方法在Hibernate中操作数据的情况有所不同。
+
+因为一个DML风格的更新或删除相当于前两种方法中的多个单独的更新或删除，所以如果更新或删除中的WHERE子句暗示了恰当的数据库索引，那么使用DML风格的操作能节省网络开销，执行得更好。
+
+强烈建议结合使用DML风格操作和无状态会话。如果使用有状态会话，不要忘记在执行DML前清除缓存，否则Hibernate将会更新或清除相关缓存（见下面的范例10）。
+4.9.4批量加载
+
+如果你的HQL或Criteria会返回很多数据，那么要注意两件事：
+
+    用下列配置开启批量抓取特性：
+
+    hibernate.jdbc.fetch_size 10
+
+    fetch_size设置为正值将开启JDBC批量抓取特性。相对快速网络，在慢速网络中这一点更为重要。Oracle建议的经验值是10。你应该基于自己的环境进行测试。
+    在使用上述任一方法时都要关闭缓存，因为批量加载一般是一次性任务。受限于内存容量，向缓存中加载大量数据通常也意味着它们很快会被清除出去，这会增加GC开销。
+
+    范例10
+
+    我们有一个后台任务，分段加载大量的IsoDeal数据用于后续处理。我们还会在分段数据交给下游系统处理前将其更新为处理中状态。最大的一段有50万行数据。以下是原始代码中截取出来的一段：
+
+    Query query = session.createQuery("FROM IsoDeal d WHERE chunk-clause");
+    query.setLockMode("d", LockMode.UPGRADE); //for Inprocess status update
+    List<IsoDeal> isoDeals = query.list();
+    for (IsoDeal isoDeal : isoDeals) { //update status to Inprocess
+       isoDeal.setStatus("Inprocess");
+    }
+    return isoDeals; 
+
+    包含上述代码的方法加上了Spring 2.5声明式事务的注解。加载并更新50万行数据大约花了10分钟。我们识别出了以下这些问题：
+
+        由于会话缓存和二级缓存的原因，系统会频繁地内存溢出。
+        就算没有内存溢出，当内存消耗很高时GC的开销也会很大。
+        我们还未设置fetch_size。
+        就算我们设置了batch_size，for循环也创建了太多update SQL语句。
+
+    不幸的是Spring 2.5不支持Hibernate无状态会话，所以我们只能关闭二级缓存；设置fetch_size；用DML风格的更新来代替for循环，以此改善性能。
+
+    但是，执行时间还是要6分钟。将Hibernate的日志级别调成trace后，我们发现是更新会话缓存造成了延时。通过在DML更新前清除会话缓存，我们将时间缩短到了4分钟，全部都是将数据加载到会话缓存中花费的时间。
+
+4.10 SQL生成调优
+
+本节将向你展示如何减少SQL生成的数量。
+4.10.1 N+1抓取问题
+
+“select抓取”策略会导致N+1问题。如果“连接抓取”策略适合你的话，你应该始终使用该策略避免N+1问题。
+
+但是，如果“连接抓取”策略执行效果不理想，就像4.7.2节中那样，你可以使用“subselect抓取”、“批量抓取”或“延迟集合抓取”来减少所需的额外SQL语句数。
+4.10.2 Insert+Update问题
+
+    范例11
+
+    我们的ElectricityDeal与DealCharge有单向one-to-many关联，如下列HBM文件片段所示：
+
+    <class name="ElectricityDeal"
+           select-before-update="true" dynamic-update="true"
+
+           dynamic-insert="true">
+        <id name="key" column="ID">
+
+            <generator class="sequence">
+                <param name="sequence">SEQ_ELECTRICITY_DEALS</param>
+
+            </generator>
+        </id>
+        …
+        <set name="dealCharges" cascade="all-delete-orphan">
+
+            <key column="DEAL_KEY" not-null="false" update="true"
+
+                 on-delete="noaction"/>
+            <one-to-many class="DealCharge"/>
+        </set>  </class> 
+
+在“key”元素中，“not-null”和“update”对应的默认值是false和true，上述代码为了明确这些取值，将它们写了出来。
+
+如果你想创建一个ElectricityDeal和十个DealCharge，会生成如下SQL语句：
+
+    1句ElectricityDeal的插入语句；
+    10句DealCharge的插入语句，其中不包括外键“DEAL_KEY”；
+    10句DealCharge字段“DEAL_KEY”的更新语句。
+
+为了消除那额外的10句更新语句，可以在那10句DealCharge插入语句中包含“DEAL_KEY”，你需要将“not-null”和“update”分别修改为true和false。
+
+另一种做法是使用双向或many-to-one关联，让DealCharge来管理关联。
+4.10.3 更新前执行select
+
+在范例11中，我们为ElectricityDeal加上了select-before-update，这会对瞬时（transient）对象或分离（detached）对象产生额外的select语句，但却能避免不必要的数据库更新。
+
+你应该做出一些权衡，如果对象没多少属性，不需要防止不必要的数据库更新，那么就不要使用该特性，因为你那些有限的数据既没有太多网络传输开销，也不会带来太多数据库更新开销。
+
+如果对象的属性较多，例如是一张大的遗留表，那你应该开启该特性，和“dynamic-update”结合使用以避免太多数据库更新开销。
+4.10.4 级联删除
+
+在范例11中，如果你想删除1个ElectricityDeal和它的100个DealCharge，Hibernate会对DealCharge做100次删除。
+
+如果将“on-delete”修改为“cascade”，Hibernate不会执行DealCharge的删除动作；而是让数据库根据ON CASCADE DELETE约束自动删除那100个DealCharge。不过，需要让DBA开启ON CASCADE DELETE约束，大多数DBA不愿意这么做，因为他们想避免父对象的意外删除级联到它的依赖对象上。此外，还要注意，该特性会绕过Hibernate对版本数据（versioned data）的常用乐观锁策略。
+4.10.5 增强的序列标识符生成器
+
+范例11中使用Oracle的序列作为标识符生成器。假设我们保存100个ElectricityDeal，Hibernate会将下面的SQL语句执行100次来获取下一个可用的标识符：
+
+select SEQ_ELECTRICITY_DEALS.NEXTVAL from dual; 
+
+如果网络不是很快，那这无疑会降低效率。3.2.3及后续版本中增加了一个增强的生成器“SequenceStyleGenerator”，它带了两个优化器：hilo和pooled。尽管HRD的第5章“基础O/R映射” 讲到了这两个优化器，不过内容有限。两个优化器都使用了HiLo算法，该算法生成的标识符等于Hi值加上Lo值，其中Hi值代表组号，Lo值顺序且重复地从1迭代到最大组大小，组号在Lo值“转回到”1时加1。
+
+假设组大小是5（可以用max_lo或increment_size参数来表示），下面是个例子：
+
+    hilo优化器
+
+    组号取自数据库序列的下一个可用值，Hi值由Hibernate定义，是组号乘以increment_size参数值。
+    pooled优化器
+
+    Hi值直接取自数据库序列的下一个可用值。数据库序列的增量应该设置为increment_size参数值。
+
+直到内存组中的值耗尽后，两个优化器才会去访问数据库，上面的例子每5个标识值符访问一次数据库。使用hilo优化器时，你的序列不能再被其他应用程序使用，除非它们使用与Hibernate相同的逻辑。使用pooled优化器，在其他应用程序使用同一序列时则相当安全。
+
+两个优化器都有一个问题，如果Hibernate崩溃，当前组内的一些标识符值就会丢失，然而大多数应用程序都不要求拥有连续的标识符值（如果你的数据库，比方说Oracle，缓存了序列值，当它崩溃时你也会丢失标识符值）。
+
+如果在范例11中使用pooled优化器，新的id配置如下：
+
+<id name="key" column="ID">
+    <generator class="org.hibernate.id.enhance.SequenceStyleGenerator">
+        <param name="sequence_name">SEQ_ELECTRICITY_DEALS</param>
+
+        <param name="initial_value">0</param>
+        <param name="increment_size">100</param>
+
+        <param name="optimizer ">pooled</param>
+    </generator>
+</id> 
+
+5 总结
+
+本文涵盖了大多数你在Hibernate应用程序调优时会觉得很有用的调优技巧，其中的大多数时间都在讨论那些行之有效却缺乏文档的调优主题，例如继承映射、二级缓存和增强的序列标识符生成器。
+
+它还提到了一些Hibernate调优所必需的数据库知识。一些范例中包含了你可能遇到的问题的实际解决方案。
+
+除此之外，值得一提的是Hibernate也可以和In-Memory Data Grid（IMDG）一起使用，例如Oracle的Coherance或GigaSpaces IMDG，这能让你的应用程序达到毫秒级别。

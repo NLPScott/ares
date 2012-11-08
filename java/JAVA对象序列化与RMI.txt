@@ -1,0 +1,128 @@
+对于一个存在于Java虚拟机中的对象来说，其内部的状态只保持在内存中。JVM停止之后，这些状态就丢失了。在很多情况下，对象的内部状态是需要被持久化下来的。提到持久化，最直接的做法是保存到文件系统或是数据库之中。这种做法一般涉及到自定义存储格式以及繁琐的数据转换。对象关系映射（Object-relational mapping）是一种典型的用关系数据库来持久化对象的方式，也存在很多直接存储对象的对象数据库。对象序列化机制（object serialization）是Java语言内建的一种对象持久化方式，可以很容易的在JVM中的活动对象和字节数组（流）之间进行转换。除了可以很简单的实现持久化之外，序列化机制的另外一个重要用途是在远程方法调用中，用来对开发人员屏蔽底层实现细节。
+相关厂商内容
+
+由于Java提供了良好的默认支持，实现基本的对象序列化是件比较简单的事。待序列化的Java类只需要实现Serializable接口即可。Serializable仅是一个标记接口，并不包含任何需要实现的具体方法。实现该接口只是为了声明该Java类的对象是可以被序列化的。实际的序列化和反序列化工作是通过ObjectOuputStream和ObjectInputStream来完成的。ObjectOutputStream的writeObject方法可以把一个Java对象写入到流中，ObjectInputStream的readObject方法可以从流中读取一个Java对象。在写入和读取的时候，虽然用的参数或返回值是单个对象，但实际上操纵的是一个对象图，包括该对象所引用的其它对象，以及这些对象所引用的另外的对象。Java会自动帮你遍历对象图并逐个序列化。除了对象之外，Java中的基本类型和数组也是可以通过 ObjectOutputStream和ObjectInputStream来序列化的。
+
+try {
+    User user = new User("Alex", "Cheng");
+    ObjectOutputStream output = new ObjectOutputStream(new FileOutputStream("user.bin"));
+    output.writeObject(user);
+    output.close();
+} catch (IOException e) {
+    e.printStackTrace();
+}
+ 
+try {
+    ObjectInputStream input = new ObjectInputStream(new FileInputStream("user.bin"));
+    User user = (User) input.readObject();
+    System.out.println(user);
+} catch (Exception e) {
+    e.printStackTrace();
+} 
+
+上面的代码给出了典型的把Java对象序列化之后保存到磁盘上，以及从磁盘上读取的基本方式。 User类只是声明了实现Serializable接口。
+
+在默认的序列化实现中，Java对象中的非静态和非瞬时域都会被包括进来，而与域的可见性声明没有关系。这可能会导致某些不应该出现的域被包含在序列化之后的字节数组中，比如密码等隐私信息。由于Java对象序列化之后的格式是固定的，其它人可以很容易的从中分析出其中的各种信息。对于这种情况，一种解决办法是把域声明为瞬时的，即使用transient关键词。另外一种做法是添加一个serialPersistentFields? 域来声明序列化时要包含的域。从这里可以看到在Java序列化机制中的这种仅在书面层次上定义的契约。声明序列化的域必须使用固定的名称和类型。在后面还可以看到其它类似这样的契约。虽然Serializable只是一个标记接口，但它其实是包含有不少隐含的要求。下面的代码给出了 serialPersistentFields的声明示例，即只有firstName这个域是要被序列化的。
+
+private static final ObjectStreamField[] serialPersistentFields = { 
+    new ObjectStreamField("firstName", String.class) 
+};  
+
+自定义对象序列化
+
+基本的对象序列化机制让开发人员可以在包含哪些域上进行定制。如果想对序列化的过程进行更加细粒度的控制，就需要在类中添加writeObject和对应的 readObject方法。这两个方法属于前面提到的序列化机制的隐含契约的一部分。在通过ObjectOutputStream的 writeObject方法写入对象的时候，如果这个对象的类中定义了writeObject方法，就会调用该方法，并把当前 ObjectOutputStream对象作为参数传递进去。writeObject方法中一般会包含自定义的序列化逻辑，比如在写入之前修改域的值，或是写入额外的数据等。对于writeObject中添加的逻辑，在对应的readObject中都需要反转过来，与之对应。
+
+在添加自己的逻辑之前，推荐的做法是先调用Java的默认实现。在writeObject方法中通过ObjectOutputStream的defaultWriteObject来完成，在readObject方法则通过ObjectInputStream的defaultReadObject来实现。下面的代码在对象的序列化流中写入了一个额外的字符串。
+
+private void writeObject(ObjectOutputStream output) throws IOException {
+    output.defaultWriteObject();
+    output.writeUTF("Hello World");
+}
+private void readObject(ObjectInputStream input) throws IOException, ClassNotFoundException {
+    input.defaultReadObject();
+    String value = input.readUTF();
+    System.out.println(value);
+}  
+
+序列化时的对象替换
+
+在有些情况下，可能会希望在序列化的时候使用另外一个对象来代替当前对象。其中的动机可能是当前对象中包含了一些不希望被序列化的域，比如这些域都是从另外一个域派生而来的；也可能是希望隐藏实际的类层次结构；还有可能是添加自定义的对象管理逻辑，如保证某个类在JVM中只有一个实例。相对于把无关的域都设成transient来说，使用对象替换是一个更好的选择，提供了更多的灵活性。替换对象的作用类似于Java EE中会使用到的传输对象（Transfer Object）。
+
+考虑下面的例子，一个订单系统中需要把订单的相关信息序列化之后，通过网络来传输。订单类Order引用了客户类Customer。在默认序列化的情况下，Order类对象被序列化的时候，其引用的Customer类对象也会被序列化，这可能会造成用户信息的泄露。对于这种情况，可以创建一个另外的对象来在序列化的时候替换当前的Order类的对象，并把用户信息隐藏起来。
+
+private static class OrderReplace implements Serializable {
+    private static final long serialVersionUID = 4654546423735192613L;
+    private String orderId;
+    public OrderReplace(Order order) {
+        this.orderId = order.getId();
+    }
+    private Object readResolve() throws ObjectStreamException {
+        //根据orderId查找Order对象并返回
+    }
+}    
+
+这个替换对象类OrderReplace只保存了Order的ID。在Order类的writeReplace方法中返回了一个OrderReplace对象。这个对象会被作为替代写入到流中。同样的，需要在OrderReplace类中定义一个readResolve方法，用来在读取的时候再转换回 Order类对象。这样对调用者来说，替换对象的存在就是透明的。
+
+private Object writeReplace() throws ObjectStreamException {
+    return new OrderReplace(this);
+} 
+
+序列化与对象创建
+
+在通过ObjectInputStream的readObject方法读取到一个对象之后，这个对象是一个新的实例，但是其构造方法是没有被调用的，其中的域的初始化代码也没有被执行。对于那些没有被序列化的域，在新创建出来的对象中的值都是默认的。也就是说，这个对象从某种角度上来说是不完备的。这有可能会造成一些隐含的错误。调用者并不知道对象是通过一般的new操作符来创建的，还是通过反序列化所得到的。解决的办法就是在类的readObject方法里面，再执行所需的对象初始化逻辑。对于一般的Java类来说，构造方法中包含了初始化的逻辑。可以把这些逻辑提取到一个方法中，在readObject方法中调用此方法。
+版本更新
+
+把一个Java对象序列化之后，所得到的字节数组一般会保存在磁盘或数据库之中。在保存完成之后，有可能原来的Java类有了更新，比如添加了额外的域。这个时候从兼容性的角度出发，要求仍然能够读取旧版本的序列化数据。在读取的过程中，当ObjectInputStream发现一个对象的定义的时候，会尝试在当前JVM中查找其Java类定义。这个查找过程不能仅根据Java类的全名来判断，因为当前JVM中可能存在名称相同，但是含义完全不同的Java 类。这个对应关系是通过一个全局惟一标识符serialVersionUID来实现的。通过在实现了Serializable接口的类中定义该域，就声明了该Java类的一个惟一的序列化版本号。JVM会比对从字节数组中得出的类的版本号，与JVM中查找到的类的版本号是否一致，来决定两个类是否是兼容的。对于开发人员来说，需要记得的就是在实现了Serializable接口的类中定义这样的一个域，并在版本更新过程中保持该值不变。当然，如果不希望维持这种向后兼容性，换一个版本号即可。该域的值一般是综合Java类的各个特性而计算出来的一个哈希值，可以通过Java提供的serialver命令来生成。在Eclipse中，如果Java类实现了Serializable接口，Eclipse会提示并帮你生成这个serialVersionUID。
+
+在类版本更新的过程中，某些操作会破坏向后兼容性。如果希望维持这种向后兼容性，就需要格外的注意。一般来说，在新的版本中添加东西不会产生什么问题，而去掉一些域则是不行的。
+序列化安全性
+
+前面提到，Java对象序列化之后的内容格式是公开的。所以可以很容易的从中提取出各种信息。从实现的角度来说，可以从不同的层次来加强序列化的安全性。
+
+    对序列化之后的流进行加密。这可以通过CipherOutputStream来实现。
+    实现自己的writeObject和readObject方法，在调用defaultWriteObject之前，先对要序列化的域的值进行加密处理。
+    使用一个SignedObject或SealedObject来封装当前对象，用SignedObject或SealedObject进行序列化。
+    在从流中进行反序列化的时候，可以通过ObjectInputStream的registerValidation方法添加ObjectInputValidation接口的实现，用来验证反序列化之后得到的对象是否合法。
+
+RMI
+
+RMI（Remote Method Invocation）是Java中的远程过程调用（Remote Procedure Call，RPC）实现，是一种分布式Java应用的实现方式。它的目的在于对开发人员屏蔽横跨不同JVM和网络连接等细节，使得分布在不同JVM上的对象像是存在于一个统一的JVM中一样，可以很方便的互相通讯。之所以在介绍对象序列化之后来介绍RMI，主要是因为对象序列化机制使得RMI非常简单。调用一个远程服务器上的方法并不是一件困难的事情。开发人员可以基于Apache MINA或是Netty这样的框架来写自己的网络服务器，亦或是可以采用REST架构风格来编写HTTP服务。但这些解决方案中，不可回避的一个部分就是数据的编排和解排（marshal/unmarshal）。需要在Java对象和传输格式之间进行互相转换，而且这一部分逻辑是开发人员无法回避的。RMI的优势在于依靠Java序列化机制，对开发人员屏蔽了数据编排和解排的细节，要做的事情非常少。JDK 5之后，RMI通过动态代理机制去掉了早期版本中需要通过工具进行代码生成的繁琐方式，使用起来更加简单。
+
+RMI采用的是典型的客户端-服务器端架构。首先需要定义的是服务器端的远程接口，这一步是设计好服务器端需要提供什么样的服务。对远程接口的要求很简单，只需要继承自RMI中的Remote接口即可。Remote和Serializable一样，也是标记接口。远程接口中的方法需要抛出RemoteException。定义好远程接口之后，实现该接口即可。如下面的Calculator是一个简单的远程接口。
+
+public interface Calculator extends Remote {
+    String calculate(String expr) throws RemoteException;
+}  
+
+实现了远程接口的类的实例称为远程对象。创建出远程对象之后，需要把它注册到一个注册表之中。这是为了客户端能够找到该远程对象并调用。
+
+public class CalculatorServer implements Calculator {
+    public String calculate(String expr) throws RemoteException {
+        return expr;
+    }
+    public void start() throws RemoteException, AlreadyBoundException {
+        Calculator stub = (Calculator) UnicastRemoteObject.exportObject(this, 0);
+        Registry registry = LocateRegistry.getRegistry();
+        registry.rebind("Calculator", stub);
+    }
+}
+
+CalculatorServer是远程对象的Java类。在它的start方法中通过UnicastRemoteObject的exportObject把当前对象暴露出来，使得它可以接收来自客户端的调用请求。再通过Registry的rebind方法进行注册，使得客户端可以查找到。
+
+客户端的实现就是首先从注册表中查找到远程接口的实现对象，再调用相应的方法即可。实际的调用虽然是在服务器端完成的，但是在客户端看来，这个接口中的方法就好像是在当前JVM中一样。这就是RMI的强大之处。
+
+public class CalculatorClient {
+    public void calculate(String expr) {
+        try {
+            Registry registry = LocateRegistry.getRegistry("localhost");
+            Calculator calculator = (Calculator) registry.lookup("Calculator");
+            String result = calculator.calculate(expr);
+            System.out.println(result);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+} 
+
+在运行的时候，需要首先通过rmiregistry命令来启动RMI中用到的注册表服务器。
+为了通过Java的序列化机制来进行传输，远程接口中的方法的参数和返回值，要么是Java的基本类型，要么是远程对象，要么是实现了 Serializable接口的Java类。当客户端通过RMI注册表找到一个远程接口的时候，所得到的其实是远程接口的一个动态代理对象。当客户端调用其中的方法的时候，方法的参数对象会在序列化之后，传输到服务器端。服务器端接收到之后，进行反序列化得到参数对象。并使用这些参数对象，在服务器端调用实际的方法。调用的返回值Java对象经过序列化之后，再发送回客户端。客户端再经过反序列化之后得到Java对象，返回给调用者。这中间的序列化过程对于使用者来说是透明的，由动态代理对象自动完成。除了序列化之外，RMI还使用了动态类加载技术。当需要进行反序列化的时候，如果该对象的类定义在当前JVM中没有找到，RMI会尝试从远端下载所需的类文件定义。可以在RMI程序启动的时候，通过JVM参数java.rmi.server.codebase来指定动态下载Java类文件的URL。  

@@ -1,0 +1,3 @@
+java registerNatives() 方法的作用
+
+一般为了使JVM能够找到本地方法，需要按照一定的命名规则命名本地方法。比如，java.lang.Object.registerNatives对应的C函数叫做 Java_java_lang_Object_registerNatives，为了是的编程人员可以自由的命名本地函数，进而提供了registerNatives这个函数，这个绑定的工作有registerNatives来完成

@@ -1,0 +1,39 @@
+JMM（Java内存模型）中的核心概念
+
+在JLS-Java Language Specification的17.4节详细描述了JMM（Java Memory Model），这个文档从语言学和实现JVM的角度讲非常棒，但是对于我们这些应用开发者而言理解其中的细节就有些问题。 
+
+本文中不再重复spec中那些正式的细节，下面将列出一些重要的原则和基本的概念，如synchronizes-with，happens-before。这两个概念和面向对象设计中的两个概念has-a，is-a很相似，Happens-before 和 synchronizes-with是用来建立和理解Java 并发的基础。 
+
+HAPPENS-BEFORE：这个关系用来指示“一段代码在其他代码开始执行前已经完全执行完毕”。
+SYNCHRONIZES-WITH：这个关系表示一个行为在发生时，它首先把要操作的那些对象同主存同步完毕之后才继续执行。
+
+
+
+
+JMM有以下主要的规则： 
+An Unlock operation on a monitor synchronizes-with later lock operations. 当针对一个监控对象执行解锁操作时，首先synchronizes-with随后的锁操作。即当要解锁时，首先此操作会把它范围内的对象与主存同步，然后解锁，之后才会执行随后其他的锁操作。
+A write to a volatile variable synchronizes-with later reads of the variable. 当写一个volatile变量时，首先synchronizes-with随后的读此变量的操作。即当写完一个volatile变量后，JVM会首先将此变量与主存同步，然后才执行随后的读volatile变量操作。当然也从主存读了。
+If an action A synchronizes-with action B, then A happens-before B. 如果时行为A synchronizes-with 行为B，那么行为A happens-before B。
+If A comes before B in program order within a thread, then A happens-before B. 在同一个线程中如果程序中A在B之前，那么A也一定发生在B之前。
+The completion of a constructor happens-before the finalizer for that object starts to run. 完成构造函数会发生在此对象的finalizer启动之前，即在对一个对象回收前，此对象必须已经构造完毕。
+An action which starts a Thread synchronizes-with the first action of the new Thread. 创建了一个新线程的行为synchronizes-with这个线程的第一个操作。即创建完新线程后，JVM首先要把这个线程的信息同步给主存，然后才可以执行这个线程内部的其他操作。
+Thread.join() synchronizes-with the last (and all other) actions in the thread being joined. Thread.join()函数synchronizes-with被join的线程内部的所有其他操作。即执行Thread.join()之后JVM首先会把信息跟主存同步，然后才会继续执行被join线程内部的其他操作。
+(Transitivity) If X happens-before Y, and Y happens-before Z, then X happens-before Z. 传递性，即X在Y之前执行，Y在Z之前执行，那么X会在Z之前执行。
+
+
+前面的两条规则是说：“releases happen before acquires;” （解锁发生在获取锁之前）即：一个线程拿着锁，当写操作完毕后首先释放锁，然后这个锁才能被其他线程获得 
+
+以上的这些规则是JMM所做的基本保证，在真正的JVM实现中会有更多更好的规则。 
+
+
+JMM（Java内存模型）概览 
+JMM就是Java内存模型，它定义了Java的线程之间如何通过内存进行交互。简单说就是： JVM中存在一个主内存(Main Memory or Java Heap Memory)，JAVA中所有变量都储存在主存中，对于所有线程都是共享的。每个线程都有自己的工作内存(Working Memory)，工作内存中保存的是主存中某些变量的拷贝，线程对所有变量的操作都是在工作内存中进行，线程之间无法相互直接访问，变量传递均需要通过主存完成。工作内存里的变量, 在多核CPU的情况下, 将大部分储存于处理器高速缓存中, 高速缓存在不经过内存时, 所以线程之间也是不可见的。详细的关于JMM的介绍会在后面的文章中。 
+
+大家都知道，CPU尽量使用自己的寄存器内部的数据，这样会极大的提高性能。JAVA规范(JLS-Java Language Specification)中规定了一些内存操作不必立即被其他线程发现，并且还提供了两个语言层面的机制来确保在多个线程之间保持内存操作的一致性：synchronized和volatile。根据JSL中的描述"In the absence of explicit synchronization, an implementation is free to update the main memory in an order that may be surprising." （在没有显示的同步时，一个操作可以以一种令人惊讶的方式自由的更新主存。）这意思是说：没有同步时，在一个线程中写操作的操作顺序也许和另外一个线程的写操作顺序不一样，并且更新内存变量会在不确定的时间之后被其他线程发现。 
+
+而使用synchronized的最根本的原因就是确保线程访问关键代码段的原子性。synchronized实际上提供了三个功能atomicity, visibility, and ordering（原子性，可见性和顺序行）。所谓原子性很好理解也很直接，就是确保不同线程再次进入同一区域的互斥性，防止在同一时刻有多于一个线程可以访问到被保护的代码段。很不幸的是许多的文章只强调了synchronized的原子性方面，而不说其他两个方面。在JMM中，同步扮演了一个重要的角色，当获取和释放monitor（锁）的时候，同步操作使得JVM执行了内存屏障（execute memory barriers）。 
+
+当一个线程获取一个锁时，它便执行了一次内存读屏障（read barriers）——所谓内存屏障就是使得任何其他线程缓存的本地内存（CPU内部缓存或者CPU寄存器）无效，然后使得其他所有线程所在的CPU重新从主存（内存）读取这些变量的值。同样，在释放锁的时候，所有其他线程均执行了一次内存写屏障（write barriers）——Flush任何已经更改的变量到主存（内存）。互斥和内存屏障的结合意味着只要程序遵循正确的同步规则（这个同步规则就是：同步任何被写的变量会下次被另一个线程正确的读；或者是同步任何读一个下一次会被另一个线程正确的更改变量），每个线程都会看到它所使用的共享变量的正确值。 
+
+如果在访问共享变量时没有同步，你会碰到一些奇怪的事情，一些改变会很快的反应到其他线程里，而其他一些更改则需要花费一些时间才能反应到其他线程中。这样的结果就会使得你如果不用synchronized，那么你不能确保你看到一致的内存视图（即相关变量在不同的线程中的值会不一致，也许有一些值是脏数据）。通常的方法，也是推荐的方法去避免这些脏数据当然是正确采用synchronized。在这种情况下，比如在广泛使用的基础类ConcurrentHashMap中就值得使用一些额外的专门知识和功夫去开发，以获得高性能。 
+

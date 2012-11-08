@@ -1,0 +1,12 @@
+Java日志中常用的抽象接口有commons-logging和slf4j两个
+1、commons-logging通过动态查找的机制，在程序运行时自动找出真正使用的日志库
+2、Slf4j库类似于Apache Common-Logging。但是，他在编译时静态绑定真正的Log库。
+   使用Slf4j时，如果你需要使用某一种日志实现，那么你必须选择正确的Slf4j的jar包的集合。 
+
+由于commons-logging自身实现原理的限制，是的它在一些场合下无法正常工作，比如OSGI插件
+
+
+注意：Apache Common-Logging一直都运作得很好。直到最近，我写OSGI插件时，它不能工作了。 
+      原因是Apache Common-Logging使用了ClassLoader寻找和载入底层的日志库。而OSGI中，不同的插件使用自己的ClassLoader。 
+      一个线程的ClassLoader在执行不同的插件时，其执行能力是不同的。 
+      OSGI的这种机制保证了插件互相独立，然而确使Apache Common-Logging无法工作！ 
