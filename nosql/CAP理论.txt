@@ -1,0 +1,15 @@
+CAP理论
+1、consistency
+2、aviabality
+3、tolerence
+这三者只能取两种
+
+NOSQL的特性，相当于关系数据库中的ACID
+BASE特性
+1、basically avaibility
+2、soft state柔性状态，即允许一段时间内状态不一致，异步
+3、eventually consistent最终一致性，最终数据一致就可以了
+
+cassandra中的状态信息同步通过gossip实现
+数据一致性检测是通过merkletree这个算法来检测的
+数据存放用到了一致性哈希的算法

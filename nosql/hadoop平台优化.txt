@@ -1,0 +1,368 @@
+1.     概述
+
+随着企业要处理的数据量越来越大，MapReduce思想越来越受到重视。Hadoop是MapReduce的一个开源实现，由于其良好的扩展性和容错性，已得到越来越广泛的应用。Hadoop作为一个基础数据处理平台，虽然其应用价值已得到大家认可，但仍存在很多问题，以下是主要几个：
+
+（1）     Namenode/jobtracker单点故障。 Hadoop采用的是master/slaves架构，该架构管理起来比较简单，但存在致命的单点故障和空间容量不足等缺点，这已经严重影响了Hadoop的可扩展性。
+
+（2）     HDFS小文件问题。在HDFS中，任何block，文件或者目录在内存中均以对象的形式存储，每个对象约占150byte，如果有1000 0000个小文件，每个文件占用一个block，则namenode需要2G空间。如果存储1亿个文件，则namenode需要20G空间。这样 namenode内存容量严重制约了集群的扩展。
+
+（3）     jobtracker同时进行监控和调度，负载过大。为了解决该问题，yahoo已经开始着手设计下一代Hadoop MapReduce（见参考资料1）。他们的主要思路是将监控和调度分离，独立出一个专门的组件进行监控，而jobtracker只负责总体调度，至于局部调度，交给作业所在的client。
+
+（4）     数据处理性能。很多实验表明，其处理性能有很大的提升空间。Hadoop类似于数据库，可能需要专门的优化工程师根据实际的应用需要对Hadoop进行调优，有人称之为“Hadoop Performance Optimization” (HPO)。
+
+为了提高其数据性能，很多人开始优化Hadoop。总结看来，对于Hadoop，当前主要有几个优化思路：
+
+（1）  从应用程序角度进行优化。由于mapreduce是迭代逐行解析数据文件的，怎样在迭代的情况下，编写高效率的应用程序，是一种优化思路。
+
+（2）  对Hadoop参数进行调优。当前hadoop系统有190多个配置参数，怎样调整这些参数，使hadoop作业运行尽可能的快，也是一种优化思路。
+
+（3） 从系统实现角度进行优化。这种优化难度是最大的，它是从hadoop实现机制角度，发现当前Hadoop设计和实现上的缺点，然后进行源码级地修改。该方法虽难度大，但往往效果明显。
+
+以上三种思路出发点均是提高hadoop应用程序的效率。实际上，随着社会的发展，绿色环保观念也越来越多地融入了企业，因而很多人开始研究Green Hadoop，即怎样让Hadoop完成相应数据处理任务的同时，使用最少的能源（见参考资料[14][15]）。
+
+本文主要介绍了当前学术界的一些优化思路，有人试图从Hadoop自动配置角度对Hadoop进行优化，但更多的是从系统实现角度进行优化，概括其优化点和实验效果如下：
+
+（1）   论文[6]试图从参数自动调优角度对Hadoop进行优化，论文只给出了可能的解决方案，并未给出实现，因而效果不可知。但它给出了一种Hadoop优化的新思路，即怎样对其190多个配置参数进行自动调整，使应用程序执行效率最高。
+
+（2）  论文[7]提出prefetching和preshuffling机制，在不同负载不同规模集群下测试，效率提升了约73%。
+
+（3）  论文[8]研究了影响Hadoop效率的五个因素，并通过提出相应的解决方案，使Hadoop效率提高了2.5~3.5倍。
+
+（4）  论文[9]为Hadoop提供了一种索引机制– Trojan Index，同时提出了一种高效的join算法– Trojan Join，实验表明，效率比Hadoop和HadoopDB高很多。
+
+除了学术界的优化，工业界也在不断进行优化以适应自己公司的产品需要，主要有：
+
+（1）Baidu公司。baidu对Hadoop中关键组件使用C++进行了重写（包括map, shuffler和reducer等），经他们内部测试（5 nodes，40GB data），效率提升了约20%（见参考资料[4]）。
+
+（2）淘宝。淘宝针对自己集群特点（作业小，slot多，作业之间有依赖，集群共享，有些作业有时效性），对jobtracker和 namenode进行了优化，据其官方博客称，其jobtracker有较大性能提升，且namenode吞吐量提升了8+倍（见参考资料[5]）。但其具体优化方法，未公开。
+
+2.     从应用程序角度进行优化
+
+（1） 避免不必要的reduce任务
+
+如果要处理的数据是排序且已经分区的，或者对于一份数据, 需要多次处理, 可以先排序分区；然后自定义InputSplit, 将单个分区作为单个mapred的输入；在map中处理数据, Reducer设置为空。
+
+这样, 既重用了已有的 “排序”, 也避免了多余的reduce任务。
+
+（2）外部文件引入
+
+有些应用程序要使用外部文件，如字典，配置文件等，这些文件需要在所有task之间共享，可以放到分布式缓存DistributedCache中（或直接采用-files选项，机制相同）。
+
+更多的这方面的优化方法，还需要在实践中不断积累。
+
+（3） 为job添加一个Combiner
+
+为job添加一个combiner可以大大减少shuffle阶段从map task拷贝给远程reduce task的数据量。一般而言，combiner与reducer相同。
+
+（4） 根据处理数据特征使用最适合和简洁的Writable类型
+
+Text对象使用起来很方便，但它在由数值转换到文本或是由UTF8字符串转换到文本时都是低效的，且会消耗大量的CPU时间。当处理那些非文本的数据时，可以使用二进制的Writable类型，如IntWritable， FloatWritable等。二进制writable好处：避免文件转换的消耗；使map task中间结果占用更少的空间。
+
+（5） 重用Writable类型
+
+很多MapReduce用户常犯的一个错误是，在一个map/reduce方法中为每个输出都创建Writable对象。例如，你的Wordcout mapper方法可能这样写：
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+	
+public void map(...) {
+ 
+  …
+ 
+  for (String word : words) {
+ 
+    output.collect(new Text(word), new IntWritable(1));
+ 
+  }
+ 
+}
+
+这样会导致程序分配出成千上万个短周期的对象。Java垃圾收集器就要为此做很多的工作。更有效的写法是：
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+	
+class MyMapper … {
+ 
+  Text wordText = new Text();
+ 
+  IntWritable one = new IntWritable(1);
+ 
+  public void map(...) {
+ 
+    for (String word: words) {
+ 
+      wordText.set(word);
+ 
+      output.collect(wordText, one);
+ 
+    }
+ 
+  }
+ 
+}
+
+（6） 使用StringBuffer而不是String
+
+当需要对字符串进行操作时，使用StringBuffer而不是String，String是read-only的，如果对它进行修改，会产生临时对象，而StringBuffer是可修改的，不会产生临时对象。
+
+（7）调试
+
+最重要，也是最基本的，是要掌握MapReduce程序调试方法，跟踪程序的瓶颈。具体可参考：
+
+http://www.cloudera.com/blog/2009/12/7-tips-for-improving-mapreduce-performance/
+
+3.     对参数进行调优
+
+3.1    参数自动调优
+
+论文[6]试图从自动化参数调优角度对hadoop应用程序运行效率进行优化。Hadoop目前有190多个配置参数，其中大约有25个对hadoop应用程序效率有显著的影响。
+
+论文首先分析了database优化思路。Database会根据用户输入的SQL建立一个代价模型：，其中y表示查询q优化目标（如运行时间），p表示q的查询计划，r表示为执行计划p而申请的资源量，d表示一些统计信息。数据库会根据该代价模型评估不同的查询计划，并选择一个最优的执行查询。这种数据库模型很难扩展应用到mapreduce环境中，主要是因为：
+
+（1）    mapreduce作业一般是采用C，C++或java编写，与声明性语言SQL有明显不同。
+
+（2）    缺少有关输入数据的统计信息。Mapreduce作业通常是运行时解析动态输入文件的，因而运行之前schema或者统计信息均是未知的。
+
+（3）    它们的优化空间不同。数据库的查询优化空间（主要是选择最优的plan）与mapreduce的优化空间（主要是配置参数调优）不同。
+
+本论文提出了三种可行的方案，第一种是基于采样的方法，借鉴Terasort作业的思路，先对输入数据进行采样，然后通过样本估算不同配置下作业的执行时间，最后选择一种最优的配置。该方法需要解决的一个问题是，由于reduce阶段和map阶段存在数据依赖，因而map完成之前，reduce的所有信息均是未知的。有一种也是可行的思路是，执行作业之前，先采样选择一个样本组成一个小作业，然后执行该小作业以估算大作业性能。该方法也存在一个需要解决的问题，怎样采样才能使样本最能代表总体？
+
+第二种是Late Binding，即延迟绑定，其思想是延迟设置其中的一个或多个参数，直到job已经部分执行，且这些参数可以确定。比如hadoop中的combiner操作实际就是采用的这一机制，作业在执行完map()之前不知道要不要进行combine。
+
+第三种是Competition-based Approaches，其思想是，首先，同时执行多个配置有不同参数的task，然后，尽快决定哪种配置的task执行速度快，最后，杀掉其它task。
+
+该文章完全是个调研性的论文，它先研究了数据库的一些调优方法，经过研究发现不可以直接将这些方法应用于mapreduce系统中，进而针对mapreduce独有的特点，提出了几种也许可行的方法，但论文中并未给出实现。
+
+3.2    参数手工配置
+
+3.2.1 Linux文件系统参数调整
+
+（1） noatime 和 nodiratime属性
+
+文件挂载时设置这两个属性可以明显提高性能。。默认情况下，Linux ext2/ext3 文件系统在文件被访问、创建、修改时会记录下文件的时间戳，比如：文件创建时间、最近一次修改时间和最近一次访问时间。如果系统运行时要访问大量文件，关闭这些操作，可提升文件系统的性能。Linux 提供了 noatime 这个参数来禁止记录最近一次访问时间戳。
+
+（2） readahead buffer
+
+调整linux文件系统中预读缓冲区地大小，可以明显提高顺序读文件的性能。默认buffer大小为256 sectors，可以增大为1024或者2408 sectors（注意，并不是越大越好）。可使用blockdev命令进行调整。
+
+（3） 避免RAID和LVM操作
+
+避免在TaskTracker和DataNode的机器上执行RAID和LVM操作，这通常会降低性能。
+
+3.2.2 Hadoop通用参数调整
+
+（1） dfs.namenode.handler.count或mapred.job.tracker.handler.count
+
+namenode或者jobtracker中用于处理RPC的线程数，默认是10，较大集群，可调大些，比如64。
+
+（2） dfs.datanode.handler.count
+
+datanode上用于处理RPC的线程数。默认为3，较大集群，可适当调大些，比如8。需要注意的是，每添加一个线程，需要的内存增加。
+
+（3） tasktracker.http.threads
+
+HTTP server上的线程数。运行在每个TaskTracker上，用于处理map task输出。大集群，可以将其设为40~50。
+
+3.2.3 HDFS相关配置
+
+（1） dfs.replication
+
+文件副本数，通常设为3，不推荐修改。
+
+（2） dfs.block.size
+
+HDFS中数据block大小，默认为64M，对于较大集群，可设为128MB或者256MB。（也可以通过参数mapred.min.split.size配置）
+
+（3） mapred.local.dir和dfs.data.dir
+
+这两个参数mapred.local.dir和dfs.data.dir 配置的值应当是分布在各个磁盘上目录，这样可以充分利用节点的IO读写能力。运行 Linux sysstat包下的iostat -dx 5命令可以让每个磁盘都显示它的利用率。
+
+3.2.4 map/reduce 相关配置
+
+（1） {map/reduce}.tasks.maximum
+
+同时运行在TaskTracker上的最大map/reduce task数，一般设为(core_per_node)/2~2*（cores_per_node）。
+
+（2） io.sort.factor
+
+当一个map task执行完之后，本地磁盘上(mapred.local.dir)有若干个spill文件，map task最后做的一件事就是执行merge sort，把这些spill文件合成一个文件（partition）。执行merge sort的时候，每次同时打开多少个spill文件由该参数决定。打开的文件越多，不一定merge sort就越快，所以要根据数据情况适当的调整。
+
+（3） mapred.child.java.opts
+
+设置JVM堆的最大可用内存，需从应用程序角度进行配置。
+
+3.2.5 map task相关配置
+
+（1） io.sort.mb
+
+Map task的输出结果和元数据在内存中所占的buffer总大小。默认为100M，对于大集群，可设为200M。当buffer达到一定阈值，会启动一个后台线程来对buffer的内容进行排序，然后写入本地磁盘(一个spill文件)。
+
+（2） io.sort.spill.percent
+
+这个值就是上述buffer的阈值，默认是0.8，即80%，当buffer中的数据达到这个阈值，后台线程会起来对buffer中已有的数据进行排序，然后写入磁盘。
+
+（3） io.sort.record
+
+Io.sort.mb中分配给元数据的内存百分比，默认是0.05。这个需要根据应用程序进行调整。
+
+（4） mapred.compress.map.output/ Mapred.output.compress
+
+中间结果和最终结果是否要进行压缩，如果是，指定压缩方式（Mapred.compress.map.output.codec/ Mapred.output.compress.codec）。推荐使用LZO压缩。Intel内部测试表明，相比未压缩，使用LZO压缩的 TeraSort作业运行时间减少60%，且明显快于Zlib压缩。
+
+3.2.6 reduce task相关配置
+
+（1） Mapred.reduce.parallel
+
+Reduce shuffle阶段copier线程数。默认是5，对于较大集群，可调整为16~25。
+
+4.     从系统实现角度进行优化
+
+4.1    在可移植性和性能之间进行权衡
+
+论文[16]主要针对HDFS进行了优化，它分析了HDFS性能低下的两个原因：调度延迟和可移植性假设。
+
+（1） 调度延迟
+
+Hadoop采用的是动态调度算法，即：当某个tasktracker上出现空slot时，它会通过HEARBEAT（默认时间间隔为3s，当集群变大时，会适当调大）告诉jobtracker，之后jobtracker采用某种调度策略从待选task中选择一个，再通过HEARBEAT告诉 tasktracker。从整个过程看，HDFS在获取下一个task之前，一直处于等待状态，这造成了资源利用率不高。此外，由于 tasktracker获取新task后，其数据读取过程是完全串行化的，即：tasktracker获取task后，依次连接namenode，连接 datanode并读取数据，处理数据。在此过程中，当tasktracker连接namenode和datanode时，HDFS仍在处于等待状态。
+
+为了解决调度延迟问题，可以考虑的解决方案有：重叠I/O和CPU阶段（pipelining），task预取（task prefetching），数据预取（data prefetching）等
+
+（2）可移植性假设
+
+为了增加Hadoop的可移植性，它采用java语言编写，这实际上也潜在的造成了HDFS低效。Java尽管可以让Hadoop的可移植性增强，但是它屏蔽了底层文件系统，这使它没法利用一些底层的API对数据存储和读写进行优化。首先，在共享集群环境下，大量并发读写会增加随机寻道，这大大降低读写效率；另外，并发写会增加磁盘碎片，这将增加读取代价（HDFS适合文件顺序读取）。
+
+为了解决该问题，可以考虑的解决方案有：修改tasktracker上的线程模型，现在Hadoop上的采用的模型是one thread per client，即每个client连接由一个线程处理（包括接受请求，处理请求，返回结果）；修改之后，可将线程分成两组，一组用于处理client通信（Client Thread），一组用于存取数据（Disk Threads，可采用one thread per disk）。
+
+4.2    Prefetching与preshuffling
+
+论文[7]提出了两种优化策略，分别为Prefetching和preshuffling。
+
+(1) PreFetching
+
+
+preFetching包括Block-intra prefetching和Block-inter prefetching：
+
+Block-intra Prefetching对block内部数据处理方式进行优化。采用的策略是以双向处理（bi-directional processing）方式提升效率，即一端进行计算，一端预取将要用到的数据（同步机制）。
+
+需解决两个问题，一是计算和预取同步。借用进度条（processing bar）的概念，进度条监控两端的进度，当同步将被打破时，调用一个信号。二是确定合适的预取率。通过实验发现，预取数据量并不是越多越好。采用重复实验的方法确定预取数据率。
+
+Block-inter Prefetching在block层面预取数据。当某个task正在处理数据块A1时，预测器预测它接下来要处理的数据块，假设是A2，A3，A4,则将这几个数据块读到task所在的rack上，这样加快了task接下来数据读取速度。
+
+(2) PreShuffling
+
+数据被map task处理之前，由预测器判断每条记录将要被哪个reduce task处理，将这些数据交由靠近该reduce task的节点上的map task处理。
+
+主页：http://incubator.apache.org/projects/hama.html
+
+4.3    Five Factors
+
+论文[8]分析了5个影响Hadoop性能的因素，分别为计算模型，I/O模型，数据解析，索引和调度，同时针对这5个因素提高了相应的提高性能的方法，最后实验证明，通过这些方法可以将Hadoop性能提高2.5到3.5倍。
+
+（1） 计算模型
+
+在Hadoop中，map task产生的中间结果经过sort-merge策略处理后交给reduce task。而这种处理策略（指sort-merge）不能够定制，这对于有些应用而言（有些应用程序可能不需要排序处理），性能不佳。此外，即使是需要排序归并处理的，sort-merge也并不是最好的策略。
+
+本文实现了Fingerprinting Based Grouping（基于hash）策略，该方法明显提高了Hadoop性能。
+
+（2） I/O模型
+
+Reader可以采用两种方式从底层的存储系统中读取数据：direct I/O和streaming I/O。direct I/O是指reader直接从本地文件中读取数据；streaming I/O指使用某种进程间通信方式（如TCP或者JDBC）从另外一个进程中获取数据。从性能角度考虑，direct I/O性能更高，各种数据库系统都是采用direct I/O模式。但从存储独立性考虑，streaming I/O使Hadoop能够从任何进程获取数据，如datanode或database，此外，如果reader不得不从远程节点上读取数据，streaming I/O是仅有的选择。
+
+本文对hadoop的文件读写方式进行了改进，当文件位于本地时，采用direct I/O方式；当文件位于其它节点上时，采用streaming I/O方式。（改进之前，hadoop全是采用streaming I/O方式）。改进后，效率约提高10%。
+
+（3） 数据解析
+
+在hadoop中，原始数据要被转换成key/value的形式以便进一步处理，这就是数据解析。现在有两种数据解析方法：immutable decoding and mutable decoding。Hadoop是采用java语言编写的，java中很多对象是immutable，如String。当用户试图修改一个String内容时，原始对象会被丢弃而新对象会被创建以存储新内容。在Hadoop中，采用了immutable对象存储字符串，这样每解析一个record就会创建一个新的对象，这就导致了性能低下。
+
+本文比较了immutable实现和mutable实现，immutable性能远高于mutable（join是10倍，select是2倍）。
+
+（4） 索引
+
+HDFS设计初衷是处理无结构化数据，既然这样，怎么可能为数据添加索引。实际上，考虑到以下几个因素，仍可以给数据添加索引：
+
+A、 hadoop提供了结构将数据记录解析成key/value对，这样也许可以给key添加索引。
+
+B、 如果作业的输入是一系列索引文件，可以实现一个新的reader高效处理这些文件。
+
+本文设计了一个range 索引，与原系统比较，连接操作提高了大约10倍，选择操作大约提高了2.5倍。
+
+（5） 调度
+
+Hadoop采用的是动态调度策略，即每次调度一个task运行，这样会带来部分开销。而database采用的静态调度的策略，即在编译的时候就确定了调度方案。当用户提交一个sql时，优化器会生成一个分布式查询计划交给每一个节点进行处理。
+
+本文使用一个benchmark评估运行时调度的代价，最终发现运行时调度策略从两个角度影响性能：需要调度的task数；调度算法。对于第一个因素，可以调整block的大小减少task数，对于第二个因素，需要做更多研究，设计新的算法。
+
+本文调整block大小(从64增大到5G)，发现block越大，效率越高，提升性能约20%~30%。
+
+主页：http://www.comp.nus.edu.sg/~epic/
+
+总结
+
+这只是一篇研究性的论文，它只是用实验验证了这5个因素会影响hadoop性能，具体实现不具有通用性，如果想将这5个方面在hadoop中实现，并能够实际的使用，也会还有比较长的距离。
+
+4.4    Hadoop++
+
+论文[9]提出了Hadoop++系统，它为处理结构化或者半结构化数据而设计的，它在Hadoop基础上做了两点改进，一是为HDFS设计了一种索引—Trojan Index。思路是：当数据被加载到HDFS时，自动为每个split建立索引，这样虽然会增加数据加载时的代价，但不影响数据处理过程；二是设计了一种新的join算法—Trojan join。该join算法在数据加载时，将需要join的数据表按照join属性的hash值存放到相同split中，这样只要在map阶段进行局部 join便可以得到最终结果，该算法跳过了mapreduce的shuffle和reduce阶段，避免了数据传输的带来的通信代价，因而大大提高了效率。
+
+Hadoop++系统最大的优点是没有直接修改hadoop代码，只是在Hadoop之上提供了供应用程序访问的API。
+
+官方主页：http://infosys.cs.uni-saarland.de/hadoop++.php
+
+5.     Hadoop其它问题
+
+5.1    单点故障问题
+
+Hadoop采用的是C/S架构，因而存在明显的namenode/jobtracker单点故障问题。相比于 jobtracker，namenode的单点故障问题更为急迫，因为namenode的故障恢复时间很长，其时间主要花在fsimage加载和 blockReport上，下面是一组测试数据：
+
+当前主要的解决思路有：
+
+（1）    Zookeeper。利用分布式系统的可靠协调系统zookeeper维护主从namenode之间的一致性。
+
+（2）    热备。添加热备从namenode，主从namenode之间通过分布式协议维护数据一致性。
+
+（3）    分布式namespace。多个namenode共同管理底层的datanode。
+
+5.2    小文件问题
+
+小文件是指文件size小于HDFS上block大小的文件。这样的文件会给hadoop的扩展性和性能带来严重问题。首先，在HDFS中，任何 block，文件或者目录在内存中均以对象的形式存储，每个对象约占150byte，如果有1000 0000个小文件，每个文件占用一个block，则namenode需要2G空间（存两份）。如果存储1亿个文件，则namenode需要20G空间。这样namenode内存容量严重制约了集群的扩展。其次，访问大量小文件速度远远小于访问几个大文件。HDFS最初是为流式访问大文件开发的，如果访问大量小文件，需要不断的从一个datanode跳到另一个datanode，严重影响性能。最后，处理大量小文件速度远远小于处理同等大小的大文件的速度。每一个小文件要占用一个slot，而task启动将耗费大量时间甚至大部分时间都耗费在启动task和释放task上。
+
+对于Hadoop小文件问题，当前主要有两种解决方案，（1）设计一种工具（比如mapreduce作业）交给用户，让用户自己每隔一段时间将小文件打包成大文件，当前Hadoop本身提供了几个这样的工具，包括Hadoop Archive（Hadoop提供了shell命令），Sequence file（需自己写程序实现）和CombineFileInputFormat（需自己写程序实现）。（2）从系统层面解决HDFS小文件，论文[10] [11]介绍了它们思路，大体上说思路基本一致：在原有HDFS基础上添加一个小文件处理模块，当用户上传一个文件时，判断该文件是否属于小文件，如果是，则交给小文件处理模块处理，否则，交给通用文件处理模块处理。小文件处理模块的设计思想是，先将很多小文件合并成一个大文件，然后为这些小文件建立索引，以便进行快速存取和访问。
+
+6.     总结
+
+本文档介绍Hadoop现有的优化点，总体来说，对于Hadoop平台，现在主要有三种优化思路，分别为：从应用程序角度角度进行优化；从参数配置角度进行优化；从系统实现角度进行优化。对于第一种思路，需要根据具体应用需求而定，同时也需要在长期实践中积累和总结；对于第二种思路，大部分采用的方法是根据自己集群硬件和具体应用调整参数，找到一个最优的。对于第三种思路，难度较大，但效果往往非常明显，总结这方面的优化思路，主要有以下几个：
+
+（1）    对namenode进行优化，包括增加其吞吐率和解决其单点故障问题。当前主要解决方案有3种：分布式namenode，namenode热备和zookeeper。
+
+（2）    HDFS小文件问题。当Hadoop中存储大量小文件时，namenode扩展性和性能受到极大制约。现在Hadoop中已有的解决方案包括：Hadoop Archive，Sequence file和CombineFileInputFormat。
+
+（3）    调度框架优化。在Hadoop中，每当出现一个空闲slot后，tasktracker都需要通过HEARBEAT向jobtracker所要task，这个过程的延迟比较大。可以用task预调度的策略解决该问题。
+
+（4）    共享环境下的文件并发存取。在共享环境下，HDFS的随机寻道次数增加，这大大降低了文件存取效率。可以通过优化磁盘调度策略的方法改进。
+
+（5）    索引。索引可以大大提高数据读取效率，如果能根据实际应用需求，为HDFS上的数据添加索引，将大大提高效率。

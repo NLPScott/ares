@@ -1,0 +1,70 @@
+── 分布式计算开源框架Hadoop入门实践
+     其实参看Hadoop官方文档已经能够很容易配置分布式框架运行环境了，不过这里既然写了就再多写一点，同时有一些细节需要注意的也说明一下，其实也就是这些细节会让人摸索半天。Hadoop可以单机跑，也可以配置集群跑，单机跑就不需要多说了，只需要按照Demo的运行说明直接执行命令即可。这里主要重点说一下集群配置运行的过程。
+二 环境
+     7台普通的机器，操作系统都是Linux。内存和CPU就不说了，反正Hadoop一大特点就是机器在多不在精。JDK必须是1.5以上的，这个切记。7台机器的机器名务必不同，后续会谈到机器名对于MapReduce有很大的影响
+三 部署考虑
+     对于Hadoop的集群来说，可以分成两大类角色：Master和Slave，前者主要配置NameNode和JobTracker的角色，负责总管分布式数据和分解任务的执行，后者配置DataNode和TaskTracker的角色，负责分布式数据存储以及任务的执行。本来我打算看看一台机器是否可以配置成Master，同时也作为Slave使用，不过发现在NameNode初始化的过程中以及TaskTracker执行过程中机器名配置好像有冲突（NameNode和TaskTracker对于Hosts的配置有些冲突，究竟是把机器名对应IP放在配置前面还是把Localhost对应IP放在前面有点问题
+四 实施步骤
+
+    在所有的机器上都建立相同的目录，也可以就建立相同的用户，以该用户的home路径来做hadoop的安装路径。例如我在所有的机器上都建立了/home/hadoops。
+    下载Hadoop，先解压到Master上。这里我是下载的0.17.1的版本。此时Hadoop的安装路径就是/home/hadoops/hadoop-0.17.1。
+    解压后进入conf目录，主要需要修改以下文件：hadoop-env.sh，hadoop-site.xml、masters、slaves。
+    Hadoop的基础配置文件是hadoop-default.xml，看Hadoop的代码可以知道，默认建立一个Job的时候会建立Job的Config，Config首先读入hadoop-default.xml的配置，然后再读入hadoop-site.xml的配置（这个文件初始的时候配置为空），hadoop-site.xml中主要配置你需要覆盖的hadoop-default.xml的系统级配置，以及你需要在你的MapReduce过程中使用的自定义配置（具体的一些使用例如final等参考文档）。
+    以下是一个简单的hadoop-site.xml的配置：
+    <?xml version="1.0"?>
+    <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+    <!-- Put site-specific property overrides in this file. -->
+    <configuration>
+    <property>
+       <name>fs.default.name</name>//你的namenode的配置，机器名加端口
+       <value>hdfs://10.2.224.46:54310/</value>
+    </property>
+    <property>
+       <name>mapred.job.tracker</name>//你的JobTracker的配置，机器名加端口
+       <value>hdfs://10.2.224.46:54311/</value>
+    </property>
+    <property>
+       <name>dfs.replication</name>//数据需要备份的数量，默认是三
+       <value>1</value>
+    </property>
+    <property>
+        <name>hadoop.tmp.dir</name>//Hadoop的默认临时路径，这个最好配置，如果在新增节点或者其他情况下莫名其妙的DataNode启动不了，就删除此文件中的tmp目录即可。不过如果删除了NameNode机器的此目录，那么就需要重新执行NameNode格式化的命令。
+        <value>/home/wenchu/hadoop/tmp/</value>
+    </property>
+    <property>
+       <name>mapred.child.java.opts</name>//java虚拟机的一些参数可以参照配置
+       <value>-Xmx512m</value>
+    </property>
+    <property>
+      <name>dfs.block.size</name>//block的大小，单位字节，后面会提到用处，必须是512的倍数，因为采用crc作文件完整性校验，默认配置512是checksum的最小单元。
+      <value>5120000</value>
+      <description>The default block size for new files.</description>
+    </property>
+    </configuration>
+
+hadoop-env.sh文件只需要修改一个参数：
+#The java implementation to use.  Required.
+export JAVA_HOME=/usr/java/jdk1.5.0_10
+配置你的Java路径，记住一定要1.5版本以上，免得莫名其妙出现问题。
+Masters中配置Masters的IP或者机器名，如果是机器名那么需要在/etc/hosts中有所设置。Slaves中配置的是Slaves的IP或者机器名，同样如果是机器名需要在/etc/hosts中有所设置。范例如下，我这里配置的都是IP：
+Masters:
+10.2.224.46
+Slaves:
+10.2.226.40
+10.2.226.39
+10.2.226.38
+10.2.226.37
+10.2.226.41
+10.2.224.36 
+建立Master到每一台Slave的SSH受信证书。由于Master将会通过SSH启动所有Slave的Hadoop，所以需要建立单向或者双向证书保证命令执行时不需要再输入密码。在Master和所有的Slave机器上执行：ssh-keygen -t rsa。执行此命令的时候，看到提示只需要回车。然后就会在/root/.ssh/下面产生id_rsa.pub的证书文件，通过scp将Master机器上的这个文件拷贝到Slave上（记得修改名称），例如：scp root@masterIP:/root/.ssh/id_rsa.pub /root/.ssh/46_rsa.pub，然后执行cat /root/.ssh/46_rsa.pub >>/root/.ssh/authorized_keys，建立authorized_keys文件即可，可以打开这个文件看看，也就是rsa的公钥作为key，user@IP作为value。此时可以试验一下，从master ssh到slave已经不需要密码了。由slave反向建立也是同样。为什么要反向呢？其实如果一直都是Master启动和关闭的话那么没有必要建立反向，只是如果想在Slave也可以关闭Hadoop就需要建立反向。
+将Master上的Hadoop通过scp拷贝到每一个Slave相同的目录下，根据每一个Slave的Java_HOME的不同修改其hadoop-env.sh。
+修改Master上/etc/profile：
+新增以下内容：（具体的内容根据你的安装路径修改，这步只是为了方便使用）
+export HADOOP_HOME=/home/wenchu/hadoop-0.17.1
+export PATH=$PATH:$HADOOP_HOME/bin 修改完毕后，执行source /etc/profile来使其生效。
+在Master上执行Hadoop namenode –format，这是第一需要做的初始化，可以看作格式化吧，以后除了在上面我提到过删除了Master上的hadoop.tmp.dir目录，否则是不需要再次执行的。
+然后执行Master上的start-all.sh，这个命令可以直接执行，因为在6中已经添加到了path路径，这个命令是启动hdfs和mapreduce两部分，当然你也可以分开单独启动hdfs和mapreduce，分别是bin目录下的start-dfs.sh和start-mapred.sh。
+检查Master的logs目录，看看Namenode日志以及JobTracker日志是否正常启动。
+检查Slave的logs目录看看Datanode日志以及TaskTracker日志是否正常。
+如果需要关闭，那么就直接执行stop-all.sh即可。
+8 以上步骤就可以启动Hadoop的分布式环境，然后在Master的机器进入Master的安装目录，执行hadoop jar hadoop-0.17.1-examples.jar wordcount输入路径和输出路径，就可以看到字数统计的效果了。此处的输入路径和输出路径都指的是HDFS中的路径，因此你可以首先通过拷贝本地文件系统中的目录到HDFS中的方式来建立HDFS中的输入路径： hadoop dfs -copyFromLocal /home/hadoops/test-in test-in。其中/home/hadoops/test-in是本地路径，test-in是将会建立在HDFS中的路径，执行完毕以后可以通过hadoop dfs –ls看到test-in目录已经存在，同时可以通过hadoop dfs –ls test-in查看里面的内容。输出路径要求是在HDFS中不存在的，当执行完那个demo以后，就可以通过hadoop dfs –ls 输出路径看到其中的内容，具体文件的内容可以通过hadoop dfs –cat文件名称来查看。
