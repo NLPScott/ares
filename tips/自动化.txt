@@ -1,0 +1,10 @@
+用VMWare或Xen等虚拟化技术标准化生产环境，实现生产环境的快速复制和快速恢复。
+用Puppet或Chef等工具自动化环境设置、软件安装/配置等操作，将配置信息转化为源代码，实现环境配置的版本控制。
+用Capistrano等工具自动化软件产品的部署，实现部署过程的版本控制。
+用dbdeploy等工具自动化数据库变更，实现数据迁移的版本控制。
+用Selenium、Cucumber等工具自动化生产环境的冒烟测试和回归测试。
+
+
+
+
+http://soap.amazon.com/schemas2/AmazonWebServices.wsdl 

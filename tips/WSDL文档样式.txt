@@ -1,0 +1,299 @@
+WSDL文档样式详解
+WSDL 绑定样式可以是 RPC 样式或文档样式。用法可以是编码的，也可以是文字的。您如何决定使用哪一种样式/用法的组合呢？本文将解决这个问题
+Web 服务是通过 WSDL 文档来描述的。WSDL 绑定描述了如何把服务绑定到消息传递协议（特别是 SOAP 消息传递协议）。WSDL SOAP 绑定可以是 RPC 样式的绑定，也可以是文档样式的绑定。同样，SOAP 绑定可以有编码的用法，也可以有文字的用法。这给我们提供了五种样式/用法模型：
+1、RPC/编码
+2、RPC/文字
+3、文档/编码
+4、文档/文字
+5、文档/文字包装
+
+这样我们在创建WSDL文件时，就有了五种选择
+对于本文的讨论，让我们从 清单1中的 Java 方法开始，并且对其应用 JAX-RPC Java-to-WSDL 规则
+
+清单1  java方法
+
+public void myMethod(int x);
+
+RPC/编码
+
+对清单中的java方法使用java-to-wsdl工具生成RPC/编码样式的WSDL文件
+
+清单2   用于myMethod的RPC/编码的WSDL
+
+<message name="myMethodRequest">
+    <part name="x" type="xsd:int"/>
+</message>
+<message name="empty"/>
+<portType name="PT">
+    <operation name="myMethod">
+        <input message="myMethodRequest"/>
+        <output message="empty"/>
+    </operation>
+</portType>
+<binding .../>  
+<!-- I won't bother with the details, just assume it's RPC/encoded. -->
+
+
+现在用“5”作为参数 x 的值来调用此方法。我们将发送一个与 清单3类似的 SOAP 消息。 
+
+清单3    用于myMethod的RPC/编码的SOAP消息 
+
+<soap:envelope>
+    <soap:body>
+        <myMethod>
+            <x xsi:type="xsd:int">5</x>
+        </myMethod>
+    </soap:body>
+</soap:envelope>
+
+RPC/编码样式的优点
+1、 WSDL 基本达到了尽可能简单易懂的要求。
+2、 操作名出现在消息中，这样接收者就可以很轻松地把消息发送到方法的实现。
+
+RPC/编码样式的缺点
+1、 类型编码信息（比如 xsi:type="xsd:int" ）出现在SOAP消息中，通常这会降低系统吞吐量，影响系统的性能。
+2、 不能简单地检验此消息的有效性，因为只有 <x xsi:type="xsd:int">5</x> 行是在Schema 中定义的，其余的soap:body部分的内容都来自WSDL中定义的。
+
+有没有一种方法能够保留这些优点而消除其中的缺点呢？或许有。让我们来看一看 RPC/文字的样式。
+
+RPC/文字
+
+清单4    用于 myMethod 的RPC/文字的WSDL
+
+<message name="myMethodRequest">
+    <part name="x" type="xsd:int"/>
+</message>
+<message name="empty"/>
+<portType name="PT">
+    <operation name="myMethod">
+        <input message="myMethodRequest"/>
+        <output message="empty"/>
+    </operation>
+</portType>
+<binding .../>  
+<!-- I won't bother with the details, just assume it's RPC/   literal. -->
+
+清单5   用于myMethod的RPC/文字的SOAP消息
+
+<soap:envelope>
+    <soap:body>
+        <myMethod>
+            <x>5</x>
+        </myMethod>
+    </soap:body>
+</soap:envelope>
+
+RPC/文档样式的优点
+1、 WSDL 还是基本达到了尽可能地简单易懂的要求。
+2、 操作名仍然出现在消息中。
+3、 去掉了类型编码。
+
+RPC/文档样式的缺点
+1、 不能简单地检验此消息的有效性，因为只有 <x xsi:type="xsd:int">5</x> 行是在Schema 中定义的，其余的soap:body部分的内容都来自WSDL中定义的。
+
+文档样式如何呢？它们能够帮助克服这些困难吗？
+
+文档/编码不知道是用来干什么的，后续可能会从WSDL标准里面消失
+
+文档/文字
+
+清单6   用于 myMethod 的文档/文字的 WSDL
+
+        <types>
+    <schema>
+        <element name="xElement" type="xsd:int"/>
+    </schema>
+</types>
+<message name="myMethodRequest">
+    <part name="x" 
+        element="xElement"/>
+</message>
+<message name="empty"/>
+<portType name="PT">
+    <operation name="myMethod">
+        <input message="myMethodRequest"/>
+        <output message="empty"/>
+    </operation>
+</portType>
+<binding .../>  
+<!-- I won't bother with the details, just assume it's document/literal. -->
+
+清单7   用于 myMethod 的文档/文字的 SOAP 消息
+
+<soap:envelope>
+    <soap:body>
+        <xElement>5</xElement>
+    </soap:body>
+</soap:envelope>
+
+文档文字样式的优点
+1、 没有编码信息
+2、 可以用任何 XML 检验器检验此消息的有效性。 soap:body （ <xElement>5</xElement> ）中每项内容都定义在 Schema 中。
+
+文档文字样式的缺点
+1、 WSDL 变得有些复杂。不过，这是一个非常小的缺点，因为 WSDL 并没有打算由人来读取。
+2、 SOAP 消息中缺少操作名。而如果没有操作名，发送就可能比较困难，并且有时变得不可能。
+
+文档/文字的样式看起来似乎只是重新安排了 RPC/文字的模型的优点和缺点。您可以检验消息的有效性，但是您失去了操作名。有没有一种方法可以改进这一点呢？有的。它就是文档/文字包装的样式。
+
+文档/文字包装
+
+清单8   用于 myMethod 的文档/文字包装的 WSDL
+
+<types>
+    <schema>
+        
+        <element name="myMethod"/>
+            <complexType>
+                <sequence>
+                    <element name="x" type="xsd:int"/>
+                </sequence>
+            </complexType>
+        </element>
+    </schema>
+</types>
+<message name="myMethodRequest">
+    <part name="
+        parameters" element="
+        myMethod"/>
+</message>
+<message name="empty"/>
+<portType name="PT">
+    <operation name="myMethod">
+        <input message="myMethodRequest"/>
+        <output message="empty"/>
+    </operation>
+</portType>
+<binding .../>  
+<!-- I won't bother with the details, just assume it's document/literal. -->
+
+清单9   用于 myMethod 的文档/文字包装的 SOAP 消息
+
+<soap:envelope>
+    <soap:body>
+        <myMethod>
+            <x>5</x>
+        </myMethod>
+    </soap:body>
+</soap:envelope>
+
+文档文字包装样式的优点
+1、 没有编码信息。
+2、 出现在 soap:body 中的每项内容都是由 Schema 定义的，所以您现在可以很容易地检验此消息的有效性。
+3、 方法名又出现在 SOAP 消息中。
+
+文档文字包装样式的缺点
+1、 WSDL 甚至更复杂，但是这仍然是一个非常小的缺点。
+
+
+如您所见，文档/文字包装的样式还是有一些缺点，不过与优点比起来，它们都显得无足轻重。
+
+
+为什么不始终采用文档/文字包装的样式
+至此，本文已经给了您这样的一个印象，文档/文字包装的样式是最好的方法。而实际的情况往往确实如此。不过，仍然存在着一些情况，在这些情况下，您最好是换一种别的样式。
+
+如果您已经重载了操作，就不能采用文档/文字包装的样式。
+
+清单10   用于文档/文字包装的问题方法
+
+public void myMethod(int x);
+public void myMethod(int x, String y);
+
+WSDL 允许重载的操作。但是当您添加包装的样式到 WSDL 时，需要元素有与操作相同的名称，并且在 XML 中不能有两个名称相同的元素。所以您必须采用文档/文字非包装的样式或某种 RPC 样式。
+
+采用 RPC/文字的样式的理由
+
+由于文档/文字非包装的样式没有提供操作名，所以在有些情况下，您将需要采用某种 RPC 样式。比如说 清单11中的一组方法。
+
+清单11    用于文档/文字非包装的样式的问题方法
+
+public void myMethod(int x);
+public void myMethod(int x, String y);
+public void someOtherMethod(int x);
+
+现在假定您的服务器接收到文档/文字的 SOAP 消息（您可以回过头在 清单 7中看一看它）。服务器应该发送哪一种方法呢？所有您能确切知道的就是，它一定不是 myMethod(int x, String x) ，因为消息只有一个参数，而这种方法需要两个参数。它可能是其他两种方法中的一种。采用文档/文字的样式，您没有办法知道是哪一种方法
+
+假定服务器接收到一个 RPC/文字的消息（比如 清单5中的），而不是文档/文字的消息。对于这种消息，服务器很容易决定把它发送到哪一种方法。您知道操作名是 myMethod，并且也知道只有一个参数，所以它必定是 myMethod(int x) 。 
+
+采用 RPC/编码的理由有很多。其中两个主要的原因是
+1、 数据图形
+2、 多态性
+
+数据图形
+
+设想您有一个二进制树，其中的节点定义在 清单12中。
+
+清单12. 二进制树节点 Schema
+
+<complexType name="Node">
+    <sequence>
+        <element name="name" type="xsd:string"/>
+        <element name="left" type="Node" xsd:nillable="true"/>
+        <element name="right" type="Node" xsd:nillable="true"/>
+    </sequence>
+</complexType>
+
+根据这种节点定义，我们可以构造一个树形结构，它的根节点 A 通过它左边和右边的的链接可以指向节点 B
+发送数据图形的标准方式是使用 href 标记，它是 RPC/编码的样式（ 清单13）的一部分。
+
+看一看 清单15中使用多态性 Schema 的 WSDL。 
+
+清单15   一个多态性 WSDL 的示例
+
+<types>
+  <schema>
+    <complexType name="animal">
+      <sequence>
+        <element name="name" type="xsd:string"/>
+      </sequence>
+    </complexType>
+    <complexType name="dog">
+      <complexContent mixed="false">
+        <extension base="animal">
+          <sequence>
+            <element name="breed" type="xsd:string"/>
+          </sequence>
+        </extension>
+      </complexContent>
+    </complexType>
+  </schema>
+</types>
+<message name="in">
+  <part name="trainee" type="animal"/>
+</message>
+<message name="empty"/>
+<portType name="AnimalTrainer">
+  <operation name="train">
+    <input message="in"/>
+    <output message="empty"/>
+  </operation>
+</portType>
+
+
+当您把一个 dog 的实例传送给 train 操作时，所生成的 SOAP 消息必须包含类型编码信息，这样接收终端才能知道它所接收的是 animal 的哪一个扩展（请参见 清单16）。这种类型编码信息可用在 RPC/编码的样式中。 
+
+清单16   一个多态性 SOAP 消息
+
+<soap:envelope>
+  <soap:body>
+    <train>
+      <trainee xsi:type="Dog">
+        <name>Bob</name>
+        <breed>Bloodhound</breed>
+      </trainee>
+    </train>
+  </soap:body>
+</soap:envelope>
+
+
+总结
+
+WSDL总共有五种样式，他们都有各自的用武之地，要视具体的使用场景而定。一般情况下还是使用文档文字包装样式
+
+      
+
+
+
+
+
+

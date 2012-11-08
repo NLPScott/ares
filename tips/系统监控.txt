@@ -1,0 +1,4 @@
+常用系统监控软件
+1、Nagios
+2、Cacti
+3、Ganglia

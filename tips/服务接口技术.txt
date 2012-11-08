@@ -1,0 +1,19 @@
+基于xml做信息交换
+axis
+axis2
+cxf
+基于通用的XML描述数据，但是XML描述数据太大，致使网络IO性能不好，传输大数据量时尤为明显
+
+google protocol buffer
+google内部使用的一种技术，信息交换的的格式是google定义的
+支持的功能较少，相对于xml技术，容易开发、传输数据量小
+
+thrift
+这种技术是由facebook开发，贡献给apache的
+
+信息交换格式由facebook定义的，较xml传输数据量小。比protocolBuf功能全，用户先接触thrift有先入为主的效应，呵呵呵
+
+
+turmeric
+
+ebay自己开发的一个框架，2011开源的

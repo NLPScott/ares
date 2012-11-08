@@ -1,0 +1,16 @@
+作业队列实现方案
+
+整个系统由三部分组成： client、server、worker
+server由java实现，client、worker提供了多种编程语言的支持，client、worker与server通信的时候采用接口实现，采用内部开发的turmeric
+
+server采用集群，作业提交时由客户端实现负载均衡，一致性哈希。
+server集群中多台机子是基于master/slave角色的，master选举采用paxos算法实现，master负责slave的所有职责外还要负责各server状态信息的交换
+server间信息交换策略：各个slave负责定期拉取master上的全局信息，及push本机的本地信息，信息交换时采用merkle tree进行同步
+
+slave管理着client提交给它的job的分发，及job状态信息的跟踪，及失败转移
+所有server共享一个数据库
+
+
+clinet提交job时需要提交方法名、参数、同步还是异步执行的信息
+
+
