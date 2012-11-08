@@ -1,0 +1,11 @@
+JBOSSWEB是一个高性能的web服务器，可部署javaEE、.NET、PHP、CGI，它是在tomcat和
+apache portal runtime的基础上发展起来的。在JBOSS 5.X及后续的版本中取代了tomcat
+成为默认的 web容器。JBOSSWEB是为了解决tomcat在keep-alive、静态资源、大文件及
+https等性能问题而出现的，它安装后的目录结构与tomcat一致
+
+-Xms1024M
+-Xmx1024M
+-XX:PermSize=200M
+-XX:MaxPermSize=512M
+-XX:+UseConcMarkSweepGC
+-Dfile.encoding=UTF-8

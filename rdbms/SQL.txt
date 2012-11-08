@@ -1,0 +1,1 @@
+like N'a%' N表示在unicode characters中搜索结果

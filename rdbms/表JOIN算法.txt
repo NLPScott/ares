@@ -1,0 +1,16 @@
+数据库表连接算法
+
+种类
+1、hash join
+2、merge join
+3、nested loop
+这三种算法没有绝对的哪种算法快的说法，要视应用场景而定
+
+
+算法原理
+merge join对两张表根据关联字段先排序后合并，如果事先没有排序则这种算法性能最差
+nested join通过外表驱动内表，遍历外表中的每行记录然后和内表中的记录匹配，内表由索引为佳，且返回结果集不宜太大
+hsah join对小表根据关联字段在内存中hash table,适合外表数据量大。数据量特别大时效果好于有索引的nested join
+外表数据量在一定范围时nested join效果会更好一些。因为hash Join建立hash表也要开销
+
+一般情况  hash join > nested join > merge join
