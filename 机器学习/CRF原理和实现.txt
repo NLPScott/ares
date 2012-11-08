@@ -1,0 +1,43 @@
+CRF原理和实现
+2011-09-09 22:52
+CRF引用范围很广，用了一次发现效果还不错，估计没多久可能会忘，先记一笔。
+
+CRF大概原理：
+序列类模型都有三个问题，分别是inference,decoding和encoding，其中inference一般使用forward算法，decoding一般使用viterbi，比较关键的是encoding问题。HMM和CRF不同在于，HMM的隐藏变量基于当前观测变量和隐藏变量本身，因此分别有隐藏变量释放概率和转移概率。CRF不同在于，将转移概率和释放概率进行抽象，实际上隐藏变量Y和观测变量X可以自由的组合，即所谓的conditional random field，只需要满足markov条件。求概率p(Y|X,Y)使得在观测变量条件下概率最大。
+也就是encoding的过程转化为求解满足极大似然概率的极值问题，cost function为X，Y交叉熵最大，即对于未知变量使用平均概率进行估计，可以证明encoding是全局最优的。
+这样CRF就有以下几个优点，1、在decoding的时候，观测变量往往是已知的，这个对于隐藏变量的预测也是有价值的，HMM不使用未来的观测变量可能导致lable bias问题，而CRF是全局最优解，可以避免这个问题。2、因为Y和X可以自由组合，基于X的feature可以人为的随意构造，这样某一些直观有用的feature就可以发挥作用(比如后缀），甚至可以构造一个等价于HMM的模型。因此有了CRF框架一说。
+模型的困难也在于如何求全局最优解上，因为往往feature数量极大，如果进行简单的牛顿迭代法，迭代的次数将非常多，而如果进行高阶牛顿法计算，由于需要计算海森矩阵，变量的存储和代价也非常大，幸好90年代中后期，出现了lbfgs，很好的解决了这个问题。
+问题转化到计算梯度（期望值）和极大似然函数值上，而计算极大似然函数值，还需要计算归一化参数Z，同时还需要计算迭代终止条件，这些数据都可以一次通过forward backward和viterbi计算完成，由于sequence之间可以单独计算，彼此独立，因此程序很容易转化成多线程。假设隐藏变量的状态数为M，每一个sequence的数据总长度为T，计算forward backward和viterbi需要O(T*M^2),N个sequence和G次迭代，因此encoding的时间复杂度为O(T*M^2*N*G)
+
+CRF大概实现的思路：
+
+CRF++是一种linere chain的CRF，也就是说隐藏变量y(i)只依赖于前一个隐藏变量y(i-1)。支持unit-gram和bi-gram
+feature.cpp 保留几个重要的变量，一个是feature_cache，即每一个tagger对应的内部的feature，避免每次都重复计算feature，所有的node，和所有的path对应于(y[i-1][i]),求的最优值就是feature_cache的每一个变量。
+BuildFeature，对于每一个模板，找到对应的字符，并getID(虚函数Encoder和Decoder不同,得到featureid,如果没有找到，则插入一个新ID,id用一个Dart:Array维护)，实际上是生成一个id的数组。EncodeFeatureIndex存储的是
+原始字符 id号 id次数
+例如：
+a
+b
+c
+a
+c
+id号按数字递增。a标记为1，b标记为2，c标记为3,系统默认在字符串加上了BOS和EOS数组，最多索引序列前4个或者序列后4个。
+模板为
+U0%x[-1,0]
+U1%x[0,0]
+U1%x[1,0]
+则BOS[-1]=0，EOS[1]=4,模板会生成feature
+EncoderFeature为
+a {0,1,2} 2
+b {1,2,3} 1
+c {2,3,1} 1
+a {3,1,3} 2
+c {1,3,4} 2
+其中feature的shrink，过滤feature次数比较少的。
+得到一个tagger类对应于每一个序列，这个时候需要计算每一个参数的期望值，按照原理，首先需要计算对应于x出现概率的归一化Z值（可多线程进行），需要forwardbackword（计算alpha和beta值和Z值）。同时viterbi动态规划，计算最佳路径。根据最佳路径和Z值调整参数的期望值。完成期望值计算，以及当前的参数（程序中feature_index-alpha)，计算完成后，在使用lbfgs进行迭代。
+
+不断进行下去，直到两次迭代结果相近或者满足超过最大迭代次数后停止。
+
+CRF应用：
+
+理论上CRF也可以同HMM一样可以预测序列概率，但是使用的最多的还是隐藏变量的预测。比如实体名识别。。。。

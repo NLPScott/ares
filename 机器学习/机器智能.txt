@@ -1,0 +1,53 @@
+机器智能算法相关
+
+字符串相关
+1、编辑距离LD
+2、公共字符序列
+3、Ngram
+4、Knuth-Morris-Pratt 字串寻找演算法（常简称为 「KMP演算法」）
+5、BNDN
+6、aho corasick
+7、trie数据结构
+8、common prefix search
+9、BM(Boyer-Moore)
+10、ACBM 算法又称为CW算法
+
+事务分类
+随即森林  random forest
+朴素贝叶斯分类
+k-means聚类算法
+最大熵算法   基于最大熵的文本分类
+KNN分类 (k Nearest Neighbors)算法又叫k最临近方法
+SVM分类 (Support Vector Machine)支持向量机
+CRF (Conditional Random Fields)条件随机场
+
+
+搜索引擎相似度算法
+
+基于词典及语义的相似度算法 ，比如基于词林、知网的相似度算法
+
+
+相似度距离计算
+
+1、欧几里得距离  欧式距离
+2、雅克比距离
+3、余弦距离
+
+智能推荐系统
+协同过滤算法
+1、slope one
+2、SVD奇异值分解
+分类算法
+
+1、朴素贝叶斯分类
+
+
+分布式一致性算法
+
+1、paxos算法。集群中选举master普遍采用这一方法,集群中多个节点数据一致性也采用这个算法，如： BDB、database replication、log replication
+2、拜占庭将军问题， 小于三分之一可以解决。
+
+检测容器中是否有某个元素的算法
+bloom filter空间占用小，可用于url去重，不适用零错误的环境
+
+
