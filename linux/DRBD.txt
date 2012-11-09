@@ -1,0 +1,1 @@
+DRBD基础 Distributed Replicated Block Device(DRBD)是一个用软件实现的、无共享的、服务器之间镜像块设备内容的存储复制解决方案。
