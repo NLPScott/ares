@@ -120,6 +120,7 @@ http://www.cs.cmu.edu/~jch/java/speed.html
 五、让访问实例内变量的getter/setter方法变成”final” 
 
 简单的getter/setter方法应该被置成final，这会告诉编译器，这个方法不会被重载，所以，可以变成”inlined” 
+,这个事错误的，内联的限制极其严格，设值为final倒是会导致静态解析
 
 例子： 
 class maf {
